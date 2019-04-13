@@ -126,9 +126,6 @@ namespace impl {
             thread &= ~0x1;
         }
 
-        Value* value_ptr() {
-            return std::addressof(value);
-        }
     };
 
     #ifdef TRBT_DEBUG
@@ -1182,7 +1179,7 @@ void TRBT_MEM_SPEC move_red_down(Direction dir, node_type* current, node_type*& 
 
 TRBT_TYPE_LIST
 TRBT_NODE_PTR TRBT_MEM_SPEC unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
-    /* Deleting a left */
+    /* Unlinking a leaf */
     if(internal->is_leaf()) {
         if(internal_parent->left == internal) {
             internal_parent->left = internal->left;
