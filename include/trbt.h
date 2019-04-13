@@ -1245,7 +1245,6 @@ TRBT_NODE_PTR TRBT_MEM_SPEC unlink_node(node_type* internal, node_type* internal
             succ->left = pred;
     }
 
-    //allocator_.deallocate(internal, 1u);
     return internal;
 }
 
