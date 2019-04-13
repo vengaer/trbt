@@ -2,7 +2,7 @@ CXX ?= g++
 
 SRC = $(wildcard src/*.cc)
 OBJ := $(addsuffix .o,$(basename $(SRC)))
-INC = -I src/
+INC = -I src/ -I include/
 BIN = trbt
 
 export CPPFLAGS
