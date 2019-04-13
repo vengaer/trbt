@@ -967,7 +967,7 @@ void TRBT_MEM_SPEC clear(node_type* current) noexcept {
 
 TRBT_TYPE_LIST
 TRBT_NODE_PTR TRBT_MEM_SPEC clone(node_type* pred, node_type* succ, node_type* other) {
-    node_type* node = allocate(other->value, nullptr, nullptr, other->color, other->thread);
+    node_type* node = allocate(other->value, pred, succ, other->color, other->thread);
 
     if(other->has_left_child())
         node->left = clone(pred, node, other->left);
