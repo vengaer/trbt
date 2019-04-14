@@ -13,12 +13,23 @@
 #define TRBT_ALLOCATOR_TYPE typename TRBT_MEM_SPEC allocator_type
 #define TRBT_INSERT_RETURN_PAIR std::pair<TRBT_ITER_TYPE, bool>
 
+#define TRBT_MAP_TYPE_LIST template <typename Key, typename Mapped, typename Compare, typename Allocator>
+#define TRBT_MAP_MEM_SPEC red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>::
+#define TRBT_MAP_NODE_PTR typename TRBT_MAP_MEM_SPEC node_type*
+#define TRBT_MAP_SIZE_TYPE typename TRBT_MAP_MEM_SPEC size_type
+#define TRBT_MAP_ITER_TYPE typename TRBT_MAP_MEM_SPEC iterator
+#define TRBT_MAP_CONST_ITER_TYPE typename TRBT_MAP_MEM_SPEC const_iterator
+#define TRBT_MAP_REVERSE_ITER_TYPE typename TRBT_MAP_MEM_SPEC reverse_iterator
+#define TRBT_MAP_CONST_REVERSE_ITER_TYPE typename TRBT_MAP_MEM_SPEC const_reverse_iterator
+#define TRBT_MAP_RED_BLACK_TREE_REF red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>&
+#define TRBT_MAP_ALLOCATOR_TYPE typename TRBT_MAP_MEM_SPEC allocator_type
+#define TRBT_MAP_INSERT_RETURN_PAIR std::pair<TRBT_MAP_ITER_TYPE, bool>
+
 #pragma once
 #include <cstddef>
 #include <functional>
 #include <iterator>
 #include <memory>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -75,10 +86,40 @@ namespace impl {
     template <typename T, typename U>
     using enable_if_convertible = std::enable_if_t<std::is_convertible_v<T, U>>;
     
-    template <std::size_t N, typename... Args>
-    decltype(auto) constexpr get(Args&&... args) {
-        return std::get<N>(std::forward_as_tuple(std::forward<Args>(args)...));
-    }
+    template <typename T>
+    struct type_is {
+        using type = T;
+    };
+
+    template <typename T>
+    struct compare_type : type_is<T> { };
+
+    template <typename K, typename M>
+    struct compare_type<std::pair<K, M>> : type_is<K> { };
+
+    template <typename T>
+    using compare_type_t = typename compare_type<T>::type;
+
+    template <typename T>
+    struct key_type : type_is<T> { };
+
+    template <typename K, typename M>
+    struct key_type<std::pair<K, M>> : type_is<K> { };
+
+    template <typename T>
+    using key_type_t = typename key_type<T>::type;
+
+    template <typename T>
+    struct is_pair : std::false_type { };
+
+    template <typename K, typename M>
+    struct is_pair<std::pair<K, M>> : std::true_type { };
+
+    template <typename K, typename M>
+    struct is_pair<std::pair<K const, M>> : std::true_type { };
+
+    template <typename T>
+    inline bool constexpr is_pair_v = is_pair<T>::value;
 
     enum class Color { Red, Black };
     enum class Direction { Left, Right };
@@ -206,9 +247,9 @@ namespace impl {
                 return next;
             }
 
-            
-        protected:
+        private:
             Container* parent_;
+        protected:
             node_type* current_;
     };
 
@@ -288,9 +329,11 @@ namespace impl {
 
 } /* namespace impl */
 
-template <typename Value, typename Compare = std::less<Value>, typename Allocator = std::allocator<Value>> 
+template <typename Value, 
+          typename Compare = std::less<impl::compare_type_t<Value>>, 
+          typename Allocator = std::allocator<Value>> 
 class red_black_tree {
-    static_assert(impl::is_comparable_v<Value, Compare>, "Value type is not comparable");
+    static_assert(impl::is_comparable_v<impl::key_type_t<Value>, Compare>, "Value type is not comparable");
 
     template <typename, typename, bool>
     friend class impl::trbt_iterator_base;
@@ -328,7 +371,7 @@ class red_black_tree {
         template <typename T = value_type, typename = impl::disable_if_same<T, red_black_tree>>
         red_black_tree(T&& value);
 
-        /* Value type will be smalles possible type that can store all types of the pack */
+        /* Value type will be smallest possible type that can store all types of the pack */
         template <typename... Args, typename = std::enable_if_t<(sizeof...(Args) > 1) && (std::is_convertible_v<Args, value_type> && ...)>>
         red_black_tree(Args&&... values);
         
@@ -425,7 +468,7 @@ class red_black_tree {
         value_compare compare_{};
 
         template <typename T = value_type>
-        node_type* allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char threaded);
+        node_type* allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread);
 
         void init(unsigned char thread);
         void clear(node_type* current) noexcept;
@@ -525,16 +568,17 @@ TRBT_MEM_SPEC red_black_tree(InputIt first, InputIt last) {
 }
 
 TRBT_TYPE_LIST
-TRBT_MEM_SPEC red_black_tree(red_black_tree const& other) : size_{other.size_} {
+TRBT_MEM_SPEC red_black_tree(red_black_tree const& other) {
     init(other.header_->thread);
+    size_ = other.size_;
     if(!other.header_->is_leaf())
         header_->right = clone(header_, header_, other.header_->right);
 }
 
 TRBT_TYPE_LIST
 TRBT_MEM_SPEC red_black_tree(red_black_tree&& other) : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
-    other.header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, 0x3);
-    other.null_node_ = nullptr;
+    /* Reset other to empty state */
+    other.init(0x3);
 }
 
 TRBT_TYPE_LIST
@@ -871,54 +915,6 @@ void swap(red_black_tree<Val_, Comp_, Alloc_>& left, red_black_tree<Val_, Comp_,
     left.swap(right);
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC lower_bound(value_type const& value, node_type* current) const {
-    while(true) {
-        if(compare_(value, current->value)) {
-            if(current == header_)
-                break;
-
-            current = current->left;
-        }
-        else if(compare_(current->value, value)) {
-            node_type* succ = successor(current);
-            if(succ == header_)
-                break;
-            else if(compare_(value, succ->value))
-                return succ;
-
-            current = current->right;
-        }
-        else
-            return current;
-    }
-    return header_;
-}
-
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC upper_bound(value_type const& value, node_type* current) const {
-    while(true) {
-        if(compare_(value, current->value)) {
-            if(current == header_)
-                break;
-
-            current = current->left;
-        }
-        else if(compare_(current->value, value)) {
-            node_type* succ = successor(current);
-            if(succ == header_)
-                break;
-            else if(compare_(value, succ->value))
-                return succ;
-
-            current = current->right;
-        }
-        else
-            return successor(current);
-    }
-    return header_;
-}
-
 #ifdef TRBT_DEBUG
 TRBT_TYPE_LIST
 void TRBT_MEM_SPEC print(node_type* t, unsigned indentation) const {
@@ -934,9 +930,9 @@ void TRBT_MEM_SPEC print(node_type* t, unsigned indentation) const {
 
 TRBT_TYPE_LIST
 template <typename T>
-TRBT_NODE_PTR TRBT_MEM_SPEC allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char threaded) {
+TRBT_NODE_PTR TRBT_MEM_SPEC allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread) {
     node_type* node = allocator_.allocate(1u);
-    node = new (node) node_type(std::forward<T>(value), lc, rc, col, threaded);
+    node = new (node) node_type{std::forward<T>(value), lc, rc, col, thread};
 
     return node;
 }
@@ -1190,7 +1186,7 @@ TRBT_NODE_PTR TRBT_MEM_SPEC unlink_node(node_type* internal, node_type* internal
             internal_parent->set_right_thread();
         }
     }
-    /* 2 children, replace internal with descendant and delete the former */
+    /* 2 children, replace internal with descendant and unlink the former */
     else if(internal->has_left_child() && internal->has_right_child()) {
         if(descendant->has_left_child()) {
             if(descendant_parent->left == descendant)
@@ -1223,7 +1219,7 @@ TRBT_NODE_PTR TRBT_MEM_SPEC unlink_node(node_type* internal, node_type* internal
         else
             internal_parent->right = descendant;
     }
-    /* Node to erase has exactly 1 child */
+    /* Node to unlink has exactly 1 child */
     else {
         node_type* child = internal->has_left_child() ? internal->left : internal->right;
         /* Avoid color voilations */
@@ -1575,6 +1571,55 @@ TRBT_SIZE_TYPE TRBT_MEM_SPEC erase(value_type const& value, node_type* current) 
     return num_deleted;
 }
 
+TRBT_TYPE_LIST
+TRBT_NODE_PTR TRBT_MEM_SPEC lower_bound(value_type const& value, node_type* current) const {
+    while(true) {
+        if(compare_(value, current->value)) {
+            if(current == header_)
+                break;
+
+            current = current->left;
+        }
+        else if(compare_(current->value, value)) {
+            node_type* succ = successor(current);
+            if(succ == header_)
+                break;
+            else if(compare_(value, succ->value))
+                return succ;
+
+            current = current->right;
+        }
+        else
+            return current;
+    }
+    return header_;
+}
+
+TRBT_TYPE_LIST
+TRBT_NODE_PTR TRBT_MEM_SPEC upper_bound(value_type const& value, node_type* current) const {
+    while(true) {
+        if(compare_(value, current->value)) {
+            if(current == header_)
+                break;
+
+            current = current->left;
+        }
+        else if(compare_(current->value, value)) {
+            node_type* succ = successor(current);
+            if(succ == header_)
+                break;
+            else if(compare_(value, succ->value))
+                return succ;
+
+            current = current->right;
+        }
+        else
+            return successor(current);
+    }
+    return header_;
+}
+
+
             
 #ifdef TRBT_DEBUG
 TRBT_TYPE_LIST
@@ -1612,6 +1657,1276 @@ int TRBT_MEM_SPEC assert_properties(node_type* t) const {
     return height_contribution - 1;
 }
 #endif
+
+/* Map version */
+template <typename Key, typename Mapped, typename Compare, typename Allocator>
+class red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator> {
+
+    template <typename, typename, bool>
+    friend class impl::trbt_iterator_base;
+
+    using Alloc     = typename std::allocator_traits<Allocator>::template rebind_alloc<impl::node<std::pair<Key const, Mapped>>>;
+    using Color     = impl::Color;
+    using Direction = impl::Direction;
+
+
+    public:
+        using key_type               = Key;
+        using mapped_type            = Mapped;
+        using value_type             = std::pair<Key const, Mapped>;
+        using size_type              = std::size_t;
+        using difference_type        = std::ptrdiff_t;
+        using key_compare            = Compare;
+        using allocator_type         = Allocator;
+        using reference              = value_type&;
+        using const_reference        = value_type const&;
+        using pointer                = typename std::allocator_traits<Allocator>::pointer;
+        using const_pointer          = typename std::allocator_traits<Allocator>::const_pointer;
+        using iterator               = impl::iterator<red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>>;
+        using const_iterator         = impl::const_iterator<red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>>;
+        using reverse_iterator       = impl::reverse_iterator<red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>>;
+        using const_reverse_iterator = impl::const_reverse_iterator<red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>>;
+        using node_type              = impl::node<std::pair<Key const, Mapped>>;
+    
+        red_black_tree();
+
+        template <typename T = value_type, typename = impl::disable_if_same<T, red_black_tree>>
+        red_black_tree(T&& value);
+
+        template <typename InputIt, typename = impl::enable_if_iterator<InputIt>>
+        red_black_tree(InputIt first, InputIt last);
+
+        red_black_tree(red_black_tree const& other);
+        red_black_tree(red_black_tree&& other);
+
+        ~red_black_tree();
+
+        red_black_tree& operator=(red_black_tree const& other) &;
+        red_black_tree& operator=(red_black_tree&& other) &;
+
+        bool empty() const;
+        size_type size() const noexcept;
+        size_type max_size() const noexcept;
+
+        void clear() noexcept;
+
+        allocator_type get_allocator() const;
+
+        #ifdef TRBT_DEBUG
+        void print() const;
+        #endif
+
+        template <typename T = value_type, typename = impl::enable_if_convertible<T, value_type>>
+        std::pair<iterator, bool> insert(T&& value);
+        template <typename T = value_type, typename = impl::enable_if_convertible<T, value_type>>
+        iterator insert(const_iterator hint, T&& value);
+        template <typename InputIt, typename = impl::enable_if_iterator<InputIt>>
+        void insert(InputIt first, InputIt last);
+
+        template <typename... Args>
+        std::pair<iterator, bool> emplace(Args&&... args);
+
+        template <typename... Args>
+        iterator emplace_hint(iterator, Args&&... args);
+        template <typename... Args>
+        iterator emplace_hint(const_iterator, Args&&... args);
+
+        size_type erase(value_type const& value);
+
+        bool contains(value_type const& value) const;
+        size_type count(value_type const& value) const;
+
+        void swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
+                                                  std::is_nothrow_swappable<Compare>::value);
+
+        iterator lower_bound(value_type const& value);
+        const_iterator lower_bound(value_type const& value) const;
+
+        iterator upper_bound(value_type const& value);
+        const_iterator upper_bound(value_type const& value) const;
+
+        iterator begin() noexcept;
+        iterator end() noexcept;
+        const_iterator begin() const noexcept;
+        const_iterator end() const noexcept;
+        const_iterator cbegin() const noexcept;
+        const_iterator cend() const noexcept;
+
+        reverse_iterator rbegin() noexcept;
+        reverse_iterator rend() noexcept;
+        const_reverse_iterator rbegin() const noexcept;
+        const_reverse_iterator rend() const noexcept;
+        const_reverse_iterator crbegin() const noexcept;
+        const_reverse_iterator crend() const noexcept;
+
+        template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+        friend bool operator==(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                               red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right);
+
+        template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+        friend bool operator!=(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                               red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right);
+
+        template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+        friend bool operator<(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                              red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right);
+
+        template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+        friend bool operator<=(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                               red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right);
+
+        template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+        friend bool operator>(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                              red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right);
+
+        template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+        friend bool operator>=(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                               red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right);
+
+        template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+        friend void swap(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_>& left, 
+                         red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_>& right) noexcept(noexcept(left.swap(right)));
+
+    private:
+        node_type* header_;
+        node_type* null_node_;
+        size_type size_{};
+        Alloc allocator_{};
+        Compare compare_{};
+
+        template <typename T = value_type>
+        node_type* allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread);
+
+        void init(unsigned char thread);
+        void clear(node_type* current) noexcept;
+
+        node_type* clone(node_type* pred, node_type* succ, node_type* other);
+
+        node_type* link(node_type* node, Direction dir) const;
+        node_type* min_node() const;
+        node_type* max_node() const;
+        static node_type* min_node(node_type* root);
+        static node_type* max_node(node_type* root);
+        static node_type* successor(node_type* node);
+        static node_type* predecessor(node_type* node);
+
+        static node_type* left_rotate(node_type* root, node_type* parent);
+        static node_type* right_rotate(node_type* root, node_type* parent);
+        static node_type* left_right_rotate(node_type* root, node_type* parent);
+        static node_type* right_left_rotate(node_type* root, node_type* parent);
+        static node_type* left_left_rotate(node_type* root, node_type* parent);
+        static node_type* right_right_rotate(node_type* root, node_type* parent);
+        
+        void move_red_up(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
+        void move_red_down(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
+
+        node_type* unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent);
+
+        template <typename T = value_type>
+        std::pair<iterator, bool> insert(T&& value, node_type* current);
+        template <typename T = value_type>
+        iterator insert(const_iterator, T&& value, node_type* current);
+
+        bool insert(node_type* current, node_type* new_node);
+        
+        template <typename... Args>
+        std::pair<iterator, bool> emplace(node_type* current, Args&&... args);
+
+        template <typename... Args>
+        iterator emplace_hint(node_type* current, Args&&... args);
+
+        size_type erase(value_type const& value, node_type* current);
+
+        node_type* lower_bound(value_type const& value, node_type* current) const;
+        node_type* upper_bound(value_type const& value, node_type* current) const;
+
+        #ifdef TRBT_DEBUG
+        void print(node_type* t, unsigned indentation = 0) const;
+        #endif
+};
+
+/* Map deduction guides */
+template <typename Key, 
+          typename Mapped, 
+          typename Compare = std::less<Key>, 
+          typename Allocator = std::allocator<std::pair<Key, Mapped>>>
+red_black_tree(std::pair<Key, Mapped>)
+    -> red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>;
+
+
+/* Map members */
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_MEM_SPEC red_black_tree() {
+    init(0x3);
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename T, typename>
+TRBT_MAP_MEM_SPEC red_black_tree(T&& value) {
+    init(0x2);
+    header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename InputIt, typename>
+TRBT_MAP_MEM_SPEC red_black_tree(InputIt first, InputIt last) {
+    init(0x3);
+    insert(first, last);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_MEM_SPEC red_black_tree(red_black_tree const& other) {
+    init(other.header_->thread);
+    size_ = other.size_;
+    if(!other.header_->is_leaf())
+        header_->right = clone(header_, header_, other.header_->right);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_MEM_SPEC red_black_tree(red_black_tree&& other) : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
+    other.init(0x3);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_MEM_SPEC ~red_black_tree() {
+    clear();
+    allocator_.deallocate(header_, 1u);
+    allocator_.deallocate(null_node_, 1u);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_RED_BLACK_TREE_REF TRBT_MAP_MEM_SPEC operator=(red_black_tree const& other) & {
+    auto cpy{other};
+    std::swap(header_, cpy.header_);
+    std::swap(size_, cpy.size_);
+    return *this;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_RED_BLACK_TREE_REF TRBT_MAP_MEM_SPEC operator=(red_black_tree&& other) & {
+    init(0x3);
+    std::swap(header_, other.header_);
+    std::swap(size_, other.size_);
+    return *this;
+}
+
+TRBT_MAP_TYPE_LIST
+bool TRBT_MAP_MEM_SPEC empty() const {
+    return header_->thread & 0x1;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC size() const noexcept {
+    return size_;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC max_size() const noexcept {
+    return std::allocator_traits<Alloc>::max_size(allocator_);
+}
+
+TRBT_MAP_TYPE_LIST
+void TRBT_MAP_MEM_SPEC clear() noexcept {
+    if(!empty()) {
+        clear(header_->right);
+        
+        header_->right = header_;
+        header_->set_right_thread();
+        size_ = 0u;
+    }
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_ALLOCATOR_TYPE TRBT_MAP_MEM_SPEC get_allocator() const {
+    return allocator_;
+}
+
+#ifdef TRBT_DEBUG
+TRBT_MAP_TYPE_LIST
+void TRBT_MAP_MEM_SPEC print() const {
+    if(empty())
+        std::cout << "Tree is empty\n";
+    else
+        print(header_->right);
+}
+#endif
+
+TRBT_MAP_TYPE_LIST
+template <typename T, typename>
+TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC insert(T&& value) {
+    if(empty()) {
+        header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
+        header_->unset_right_thread();
+    
+        size_++;
+        
+        return {iterator{this, header_->right}, true};
+    }
+    return insert(std::forward<T>(value), header_->right);
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename T, typename>
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC insert(const_iterator hint, T&& value) {
+    if(empty()) {
+        header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
+        header_->unset_right_thread();
+    
+        size_++;
+        
+        return iterator{this, header_->right};
+    }
+    return insert(hint, std::forward<T>(value), header_->right);
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename InputIt, typename>
+void TRBT_MAP_MEM_SPEC insert(InputIt first, InputIt last) {
+    while(first != last)
+        insert(*first++);
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename... Args>
+TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC emplace(Args&&... args) {
+    if(empty()) {
+        header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, 0x3);
+        header_->unset_right_thread();
+        
+        size_++;
+        return {iterator{this, header_->right}, true};
+    }
+    return emplace(header_->right, std::forward<Args>(args)...);
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename... Args>
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(iterator, Args&&... args) {
+    if(empty()) {
+        header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, 0x3);
+        header_->unset_right_thread();
+        
+        size_++;
+        return iterator{this, header_->right};
+    }
+    return emplace_hint(header_->right, std::forward<Args>(args)...);
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename... Args>
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(const_iterator, Args&&... args) {
+    return emplace_hint(cend(), std::forward<Args>(args)...);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC erase(value_type const& value) {
+    if(empty())
+        return 0u;
+    
+    return erase(value, header_->right);
+}
+
+TRBT_MAP_TYPE_LIST
+bool TRBT_MAP_MEM_SPEC contains(value_type const& value) const  {
+    if(empty())
+        return false;
+
+    node_type* current = header_->right;
+
+    while(true) {
+        if(compare_(value.first, current->value.first)) {
+            if(current->has_left_child())
+                current = current->left;
+            else
+                return false;
+        }
+        else if(compare_(current->value.fist, value.first)) {
+            if(current->has_right_child())
+                current = current->right;
+            else
+                return false;
+        }
+        else
+            break;
+    }
+
+    return true;
+} 
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC count(value_type const& value) const {
+    return static_cast<size_type>(contains(value));
+}
+
+TRBT_MAP_TYPE_LIST
+void TRBT_MAP_MEM_SPEC swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
+                                                        std::is_nothrow_swappable<Compare>::value) {
+    std::swap(header_, other.header_);
+    std::swap(size_, other.size_);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC lower_bound(value_type const& value) {
+    return iterator{this, lower_bound(value, header_->right)};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC lower_bound(value_type const& value) const {
+    return const_iterator{this, lower_bound(value, header_->right)};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC upper_bound(value_type const& value) {
+    return iterator{this, upper_bound(value, header_->right)};
+}
+
+TRBT_MAP_TYPE_LIST 
+TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC upper_bound(value_type const& value) const {
+    return const_iterator{this, upper_bound(value, header_->right)};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC begin() noexcept {
+    return iterator{this, min_node()};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC end() noexcept {
+    return iterator{this};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC begin() const noexcept {
+    return const_iterator{this, min_node()};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC end() const noexcept {
+    return const_iterator{this};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC cbegin() const noexcept {
+    return const_iterator{this, min_node()};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC cend() const noexcept {
+    return const_iterator{this};
+}
+    
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC rbegin() noexcept {
+    return reverse_iterator{this, max_node()};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC rend() noexcept {
+    return reverse_iterator{this};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC rbegin() const noexcept {
+    return const_reverse_iterator{this, max_node()};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC rend() const noexcept {
+    return const_reverse_iterator{this};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC crbegin() const noexcept {
+    return const_reverse_iterator{this, max_node()};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC crend() const noexcept {
+    return const_reverse_iterator{this};
+}
+
+template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+bool operator==(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right) 
+{
+    if(left.size() != right.size())
+        return false;
+
+    auto left_it = std::cbegin(left);
+    auto right_it = std::cbegin(right);
+    while(left_it != std::cend(left) && right_it != std::cend(right))
+        if((*left_it).first != (*right_it).first || (*left_it++).second != (*right_it++).second)
+            return false;
+
+    return true;
+}
+
+template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+bool operator!=(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right) 
+{
+    return !(left == right);
+}
+
+template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+bool operator<(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+               red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right) 
+{
+    Comp_ compare{};
+    auto left_it = std::cbegin(left);
+    auto right_it = std::cbegin(right);
+    while(left_it != std::cend(left) && right_it != std::cend(right)) {
+        if(compare((*left_it).first, (*right_it).first))
+            return true;
+        else if(compare((*right_it++).first, (*left_it++).first))
+            return false;
+    }
+
+    return left.size() < right.size();
+}
+
+template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+bool operator>(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+               red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right) 
+{
+    Comp_ compare{};
+    auto left_it = std::cbegin(left);
+    auto right_it = std::cbegin(right);
+    while(left_it != std::cend(left) && right_it != std::cend(right)) {
+        if(compare((*left_it).first, (*right_it).first))
+            return false;
+        else if(compare((*right_it++).first, (*left_it++).first))
+            return true;
+    }
+
+    return left.size() > right.size();
+}
+
+template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+bool operator<=(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right) 
+{
+    return !(left > right);
+}
+
+template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+bool operator>=(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& left, 
+                red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_> const& right) 
+{
+    return !(left < right);
+}
+
+template <typename Key_, typename Mapped_, typename Comp_, typename Alloc_>
+void swap(red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_>& left, 
+red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_>& right) noexcept(noexcept(left.swap(right))) 
+{
+    left.swap(right);
+}
+
+#ifdef TRBT_DEBUG
+TRBT_MAP_TYPE_LIST
+void TRBT_MAP_MEM_SPEC print(node_type* t, unsigned indentation) const {
+    std::cout << std::setw(indentation) << "" << "{" << t->value.first << ", " << t->value.second << "}\n";
+    indentation += 2;
+
+    if(t->has_left_child())
+        print(t->left, indentation);
+    if(t->has_right_child())
+        print(t->right, indentation);
+}
+#endif
+
+TRBT_MAP_TYPE_LIST
+template <typename T>
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread) {
+    node_type* node = allocator_.allocate(1u);
+    node = new (node) node_type{std::forward<T>(value), lc, rc, col, thread};
+    
+    return node;
+}
+
+TRBT_MAP_TYPE_LIST
+void TRBT_MAP_MEM_SPEC init(unsigned char thread) {
+    header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, thread);
+    header_->left = header_;
+
+    if(header_->is_leaf())
+        header_->right = header_;
+    else
+        size_++;
+    
+    null_node_ = allocate(value_type{}, nullptr, nullptr, Color::Black, 0x3);
+    null_node_->left = null_node_->right = null_node_;
+}
+
+TRBT_MAP_TYPE_LIST
+void TRBT_MAP_MEM_SPEC clear(node_type* current) noexcept {
+    if(current->has_left_child())
+        clear(current->left);
+    if(current->has_right_child())
+        clear(current->right);
+    
+    allocator_.deallocate(current, 1u);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC clone(node_type* pred, node_type* succ, node_type* other) {
+    node_type* node = allocate(other->value, pred, succ, other->color, other->thread);
+
+    if(other->has_left_child())
+        node->left = clone(pred, node, other->left);
+    if(other->has_right_child())
+        node->right = clone(node, succ, other->right);
+
+    return node;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC link(node_type* node, Direction dir) const {
+    if(dir == Direction::Right)
+        return node->has_right_child() ? node->right : null_node_;
+    
+    return node->has_left_child() ? node->left : null_node_;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC min_node() const {
+    return min_node(header_->right);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC max_node() const {
+    return max_node(header_->right);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC min_node(node_type* root) {
+    while(root->has_left_child())
+        root = root->left;
+
+    return root;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC max_node(node_type* root) {
+    while(root->has_right_child())
+        root = root->right;
+
+    return root;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC successor(node_type* node) {
+    return node->has_right_child() ? min_node(node->right) : node->right;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC predecessor(node_type* node) {
+    return node->has_left_child() ? max_node(node->left) : node->left;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC left_rotate(node_type* root, node_type* parent) {
+    node_type* new_root = root->right;
+
+    if(new_root->has_left_child())
+        root->right = new_root->left;
+    else {
+        /* root->right should be thread */
+        root->set_right_thread();
+        /* new_root->left no longer thread */
+        new_root->unset_left_thread();
+    }
+
+    new_root->left = root;
+
+    if(parent->left == root)
+        parent->left = new_root;
+    else
+        parent->right = new_root;
+
+    root->color = Color::Red;
+    new_root->color = Color::Black;
+
+    return new_root;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC right_rotate(node_type* root, node_type* parent) {
+    node_type* new_root = root->left;
+
+    if(new_root->has_right_child())
+        root->left = new_root->right;
+    else {
+        /* root->left should be thread */
+        root->set_left_thread();
+        /* new_root->right no longer thread */
+        new_root->unset_right_thread();
+    }
+
+    new_root->right = root;
+    
+    if(parent->left == root)
+        parent->left = new_root;
+    else
+        parent->right = new_root;
+
+    root->color = Color::Red;
+    new_root->color = Color::Black;
+
+    return new_root;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC left_right_rotate(node_type* root, node_type* parent) {
+    left_rotate(root->left, root);
+    return right_rotate(root, parent);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC right_left_rotate(node_type* root, node_type* parent) {
+    right_rotate(root->right, root);
+    return left_rotate(root, parent);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC left_left_rotate(node_type* root, node_type* parent) {
+    right_rotate(root->left, root);
+    return right_rotate(root, parent);
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC right_right_rotate(node_type* root, node_type* parent) {
+    left_rotate(root->right, root);
+    return left_rotate(root, parent);
+}
+
+TRBT_MAP_TYPE_LIST
+void TRBT_MAP_MEM_SPEC move_red_up(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
+    current->color = Color::Red;
+
+    if(current->has_left_child() && current->has_right_child())
+        current->left->color = current->right->color = Color::Black;
+
+    /* parent and grandparent are red, have to rotate */
+    if(parent->color == Color::Red) {
+        grandparent->color = Color::Red;
+
+        bool current_is_left_child = compare_(current->value.first, parent->value.first);
+        /* Nodes are on a line, double rotation */
+        if(current_is_left_child != compare_(current->value.first, grandparent->value.first)) {
+            if(current_is_left_child)
+                right_left_rotate(grandparent, great_grandparent);
+            else
+                left_right_rotate(grandparent, great_grandparent);
+
+            current->color = Color::Black;
+        }
+        /* Single rotation */
+        else {
+            if(compare_(parent->value.first, grandparent->value.first))
+                right_rotate(grandparent, great_grandparent);
+            else
+                left_rotate(grandparent, great_grandparent);
+
+            parent->color = Color::Black;
+        }
+    }
+}
+
+TRBT_MAP_TYPE_LIST
+void TRBT_MAP_MEM_SPEC move_red_down(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
+    /* Node in opposite direciton is red, current and link(current, dir) are black. 
+     * rotate red node into the path */
+    if(link(current, !dir)->color == Color::Red) {
+        if(dir == Direction::Left)
+            parent = left_rotate(current, parent);
+        else
+            parent = right_rotate(current, parent);
+    }
+    else {
+        /* Both of sibling's children are black, safe to recolor */
+        if(link(sibling, dir)->color == Color::Black && link(sibling, !dir)->color == Color::Black) {
+            parent->color = Color::Black;
+            sibling->color = current->color = Color::Red;
+        }
+        /* Sibling has red child(ren), rotate */
+        else {
+            Direction last           = static_cast<Direction>(parent->right == current);
+            Direction second_to_last = static_cast<Direction>(grandparent->right == parent);
+
+            /* Triangle case */
+            if(link(sibling, last)->color == Color::Red) {
+                if(last == Direction::Right)
+                    left_right_rotate(parent, grandparent);
+                else
+                    right_left_rotate(parent, grandparent);
+            }
+            /* Nodes are on a line */
+            else {
+                if(last == Direction::Left)
+                    left_rotate(parent, grandparent);
+                else
+                    right_rotate(parent, grandparent);
+            }
+
+            node_type* new_parent = link(grandparent, second_to_last);
+
+            /* Enforce correct coloring */
+            current->color = new_parent->color = Color::Red;
+            new_parent->left->color = new_parent->right->color = Color::Black;
+        }
+    }
+
+    null_node_->color = Color::Black;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
+    /* Unlinking a leaf */
+    if(internal->is_leaf()) {
+        if(internal_parent->left == internal) {
+            internal_parent->left = internal->left;
+            internal_parent->set_left_thread();
+        }
+        else {
+            internal_parent->right = internal->right;
+            internal_parent->set_right_thread();
+        }
+    }
+    /* 2 children, replace internal with descendant and unlink the former */
+    else if(internal->has_left_child() && internal->has_right_child()) {
+        if(descendant->has_left_child()) {
+            if(descendant_parent->left == descendant)
+                descendant_parent->left = descendant->left;
+            else
+                descendant_parent->right = descendant->left;
+        }
+        /* descendant is left child of internal, make descendant_parent->left point to
+         * descendant's left and make it a thread. */
+        else if(descendant_parent->left == descendant) {
+            descendant_parent->left = descendant->left;
+            descendant_parent->set_left_thread();
+        }
+        /* descendant is right child of its parent, descendant->right should still point to 
+         * descendant but should be marked as a thread */
+        else
+            descendant_parent->set_right_thread();
+
+        /* Make sure descendant matches internal */
+        descendant->thread = internal->thread;
+        descendant->color  = internal->color;
+        descendant->left   = internal->left;
+        descendant->right  = internal->right;
+
+        successor(internal)->left = descendant;
+
+        /* Replace */
+        if(internal_parent->left == internal)
+            internal_parent->left = descendant;
+        else
+            internal_parent->right = descendant;
+    }
+    /* Node to unlink has exactly 1 child */
+    else {
+        node_type* child = internal->has_left_child() ? internal->left : internal->right;
+        /* Avoid color voilations */
+        child->color = internal->color;
+        
+        if(internal_parent->left == internal)
+            internal_parent->left = child;
+        else
+            internal_parent->right = child;
+
+        node_type *pred = predecessor(internal), *succ = successor(internal);
+
+        if(internal->has_left_child())
+            pred->right = succ;
+        else
+            succ->left = pred;
+    }
+
+    return internal;
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename T>
+TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC insert(T&& value, node_type* current) {
+    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+
+    Direction dir;
+
+    while(true) {
+        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
+        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+            move_red_up(current, parent, grandparent, great_grandparent);
+
+        great_grandparent = grandparent;
+        grandparent = parent;
+        parent = current;
+    
+        if(compare_(value.first, current->value.first)) {
+            dir = Direction::Left;
+
+            /* Insert */
+            if(!current->has_left_child()) {
+                current->unset_left_thread();
+                current->left = allocate(std::forward<T>(value), current->left, current, Color::Red, 0x3);
+                current = current->left;
+                break;
+            }
+        }
+        else if(compare_(current->value.first, value.first)) {
+            dir = Direction::Right;
+            
+            /* Insert */
+            if(!current->has_right_child()) {
+                current->unset_right_thread();
+                current->right = allocate(std::forward<T>(value), current, current->right, Color::Red, 0x3);
+                current = current->right;
+                break;
+            }
+        }
+        /* Already in tree */
+        else
+            return {iterator{this, current}, false};
+
+        /* Move down */
+        current = link(current, dir);
+    }
+    move_red_up(current, parent, grandparent, great_grandparent);
+    /* Ensure root is black */
+    header_->right->color = Color::Black;
+    ++size_;
+    
+    return {iterator{this, current}, true};
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename T>
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC insert(const_iterator, T&& value, node_type* current) {
+    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+
+    Direction dir;
+
+    while(true) {
+        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
+        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+            move_red_up(current, parent, grandparent, great_grandparent);
+
+        great_grandparent = grandparent;
+        grandparent = parent;
+        parent = current;
+    
+        if(compare_(value.first, current->value.first)) {
+            dir = Direction::Left;
+
+            /* Insert */
+            if(!current->has_left_child()) {
+                current->unset_left_thread();
+                current->left = allocate(std::forward<T>(value), current->left, current, Color::Red, 0x3);
+                current = current->left;
+                break;
+            }
+        }
+        else if(compare_(current->value.first, value.first)) {
+            dir = Direction::Right;
+            
+            /* Insert */
+            if(!current->has_right_child()) {
+                current->unset_right_thread();
+                current->right = allocate(std::forward<T>(value), current, current->right, Color::Red, 0x3);
+                current = current->right;
+                break;
+            }
+        }
+        /* Already in tree */
+        else
+            return iterator{this, current};
+
+        /* Move down */
+        current = link(current, dir);
+    }
+    move_red_up(current, parent, grandparent, great_grandparent);
+    /* Ensure root is black */
+    header_->right->color = Color::Black;
+    ++size_;
+    
+    return iterator{this, current};
+}
+
+TRBT_MAP_TYPE_LIST
+bool TRBT_MAP_MEM_SPEC insert(node_type* current, node_type* new_node) {
+    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+
+    Direction dir;
+
+    while(true) {
+        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
+        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+            move_red_up(current, parent, grandparent, great_grandparent);
+
+        great_grandparent = grandparent;
+        grandparent = parent;
+        parent = current;
+    
+        if(compare_(new_node->value.first, current->value.first)) {
+            dir = Direction::Left;
+
+            /* Insert */
+            if(!current->has_left_child()) {
+                current->unset_left_thread();
+                new_node->left = current->left;
+                new_node->right = current;
+                new_node->color = Color::Red;
+                new_node->thread = 0x3;
+                current->left = new_node;
+                current = current->left;
+                break;
+            }
+        }
+        else if(compare_(current->value.first, new_node->value.first)) {
+            dir = Direction::Right;
+            
+            /* Insert */
+            if(!current->has_right_child()) {
+                current->unset_right_thread();
+                new_node->left = current;
+                new_node->right = current->right;
+                new_node->color = Color::Red;
+                new_node->thread = 0x3;
+                current->right = new_node;
+                current = current->right;
+                break;
+            }
+        }
+        /* Already in tree */
+        else
+            return false;
+
+        /* Move down */
+        current = link(current, dir);
+    }
+    move_red_up(current, parent, grandparent, great_grandparent);
+    /* Ensure root is black */
+    header_->right->color = Color::Black;
+    ++size_;
+
+    return true;
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename... Args>
+TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC emplace(node_type* current, Args&&... args) {
+    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+
+    Direction dir;
+    node_type* new_node = allocate(value_type{std::forward<Args>(args)...}, nullptr, nullptr, Color::Red, 0x3);
+
+    while(true) {
+        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
+        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+            move_red_up(current, parent, grandparent, great_grandparent);
+
+        great_grandparent = grandparent;
+        grandparent = parent;
+        parent = current;
+    
+        if(compare_(new_node->value.first, current->value.first)) {
+            dir = Direction::Left;
+
+            /* Insert */
+            if(!current->has_left_child()) {
+                current->unset_left_thread();
+                new_node->left = current->left;
+                new_node->right = current;
+                current->left = new_node;
+                current = current->left;
+                break;
+            }
+        }
+        else if(compare_(current->value.first, new_node->value.first)) {
+            dir = Direction::Right;
+            
+            /* Insert */
+            if(!current->has_right_child()) {
+                current->unset_right_thread();
+                new_node->left = current;
+                new_node->right = current->right;
+                current->right = new_node;
+                current = current->right;
+                break;
+            }
+        }
+        /* Already in tree */
+        else
+            return {iterator{this, current}, false};
+
+        /* Move down */
+        current = link(current, dir);
+    }
+    move_red_up(current, parent, grandparent, great_grandparent);
+    /* Ensure root is black */
+    header_->right->color = Color::Black;
+    ++size_;
+    
+    return {iterator{this, current}, true};
+}
+
+TRBT_MAP_TYPE_LIST
+template <typename... Args>
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(node_type* current, Args&&... args) {
+    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+
+    Direction dir;
+    node_type* new_node = allocate(value_type{std::forward<Args>(args)...}, nullptr, nullptr, Color::Red, 0x3);
+
+    while(true) {
+        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
+        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+            move_red_up(current, parent, grandparent, great_grandparent);
+
+        great_grandparent = grandparent;
+        grandparent = parent;
+        parent = current;
+    
+        if(compare_(new_node->value.first, current->value.first)) {
+            dir = Direction::Left;
+
+            /* Insert */
+            if(!current->has_left_child()) {
+                current->unset_left_thread();
+                new_node->left = current->left;
+                new_node->right = current;
+                current->left = new_node;
+                current = current->left;
+                break;
+            }
+        }
+        else if(compare_(current->value.first, new_node->value.first)) {
+            dir = Direction::Right;
+            
+            /* Insert */
+            if(!current->has_right_child()) {
+                current->unset_right_thread();
+                new_node->left = current;
+                new_node->right = current->right;
+                current->right = new_node;
+                current = current->right;
+                break;
+            }
+        }
+        /* Already in tree */
+        else
+            return iterator{this, current};
+
+        /* Move down */
+        current = link(current, dir);
+    }
+    move_red_up(current, parent, grandparent, great_grandparent);
+    /* Ensure root is black */
+    header_->right->color = Color::Black;
+    ++size_;
+    
+    return iterator{this, current};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC erase(value_type const& value, node_type* current) {
+    node_type *parent = header_, *grandparent = null_node_, *sibling = null_node_, *found = nullptr, *found_parent = nullptr;
+    
+    Direction dir;
+    
+    while(true) {
+        dir = static_cast<Direction>(value.first > current->value.first);
+        
+        /* Ensure node to remove is red */
+        if(current->color == Color::Black && link(current, dir)->color == Color::Black) {
+            move_red_down(dir, current, parent, grandparent, sibling);
+
+            /* If found is either the current or parent, rotations during recoloring may introduce
+             * a node between found_parent and found. If this happens, move found_parent down one step */
+            if(found_parent && found_parent->right != found && found_parent->left != found)
+                found_parent = link(found_parent, static_cast<Direction>(found->value.first > found_parent->value.first));
+        }
+
+        /* Correct node found, store and keep moving down */
+        if(!compare_(current->value.first, value.first) && !compare_(current->value.first, value.first)) {
+            found = current;
+            found_parent = parent;
+        }
+        
+        /* current's link in direction dir is a thread*/
+        if(link(current, dir) == null_node_)
+            break;
+
+        /* Move down */
+        grandparent = parent;
+        parent = current;
+        sibling = link(current, !dir);
+        current = link(current, dir);
+    } 
+    size_type num_deleted = 0u;
+    if(found) {
+        allocator_.deallocate(unlink_node(found, found_parent, current, parent), 1u);
+        --size_;
+        ++num_deleted;
+    }
+
+    if(!empty())
+        header_->right->color = Color::Black;
+
+    return num_deleted;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC lower_bound(value_type const& value, node_type* current) const {
+    while(true) {
+        if(compare_(value.first, current->value.first)) {
+            if(current == header_)
+                break;
+
+            current = current->left;
+        }
+        else if(compare_(current->value.first, value.first)) {
+            node_type* succ = successor(current);
+            if(succ == header_)
+                break;
+            else if(compare_(value.first, succ->value.first))
+                return succ;
+
+            current = current->right;
+        }
+        else
+            return current;
+    }
+    return header_;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC upper_bound(value_type const& value, node_type* current) const {
+    while(true) {
+        if(compare_(value.first, current->value.first)) {
+            if(current == header_)
+                break;
+
+            current = current->left;
+        }
+        else if(compare_(current->value.first, value.first)) {
+            node_type* succ = successor(current);
+            if(succ == header_)
+                break;
+            else if(compare_(value.first, succ->value.first))
+                return succ;
+
+            current = current->right;
+        }
+        else
+            return successor(current);
+    }
+    return header_;
+}
+
 
 #ifdef TRBT_DEBUG
 namespace impl {
@@ -1682,4 +2997,16 @@ namespace impl {
 #undef TRBT_INSERT_RETURN_TYPE
 #undef TRBT_RED_BLACK_TREE_REF
 #undef TRBT_ALLOCATOR_TYPE
+
+#undef TRBT_MAP_TYPE_LIST 
+#undef TRBT_MAP_MEM_SPEC 
+#undef TRBT_MAP_NODE_PTR
+#undef TRBT_MAP_SIZE_TYPE
+#undef TRBT_MAP_ITER_TYPE
+#undef TRBT_MAP_CONST_ITER_TYPE
+#undef TRBT_MAP_REVERSE_ITER_TYPE
+#undef TRBT_MAP_CONST_REVERSE_ITER_TYPE
+#undef TRBT_MAP_RED_BLACK_TREE_REF 
+#undef TRBT_MAP_ALLOCATOR_TYPE 
+#undef TRBT_MAP_INSERT_RETURN_PAIR 
 #endif
