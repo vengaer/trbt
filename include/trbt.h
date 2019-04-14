@@ -101,15 +101,6 @@ namespace impl {
     using compare_type_t = typename compare_type<T>::type;
 
     template <typename T>
-    struct key_type : type_is<T> { };
-
-    template <typename K, typename M>
-    struct key_type<std::pair<K, M>> : type_is<K> { };
-
-    template <typename T>
-    using key_type_t = typename key_type<T>::type;
-
-    template <typename T>
     struct is_pair : std::false_type { };
 
     template <typename K, typename M>
@@ -120,9 +111,6 @@ namespace impl {
 
     template <typename... Ts>
     using enable_if_pair = std::enable_if_t<(is_pair_v<Ts> && ...)>;
-
-    template <typename... Ts>
-    using disable_if_pair = std::enable_if_t<!(is_pair_v<Ts> || ...)>;
 
     enum class Color { Red, Black };
     enum class Direction { Left, Right };
@@ -335,9 +323,9 @@ namespace impl {
 template <typename Value, 
           typename Compare = std::less<impl::compare_type_t<Value>>, 
           typename Allocator = std::allocator<Value>,
-          typename = void> /* Used for SFINAE to separate map type */
+          typename = void> /* Used with SFINAE in order to detect map type */
 class red_black_tree {
-    static_assert(impl::is_comparable_v<impl::key_type_t<Value>, Compare>, "Value type is not comparable");
+    static_assert(impl::is_comparable_v<impl::compare_type_t<Value>, Compare>, "Value type is not comparable");
 
     template <typename, typename, bool>
     friend class impl::trbt_iterator_base;
@@ -540,7 +528,7 @@ red_black_tree(InputIt, InputIt, Allocator)
 
 /* Catches map overload as well */
 template <typename... Args, 
-          typename Compare = std::less<impl::key_type_t<std::common_type_t<Args...>>>,
+          typename Compare = std::less<impl::compare_type_t<std::common_type_t<Args...>>>,
           typename Allocator = std::allocator<std::common_type_t<Args...>>>
 red_black_tree(Args...)
     -> red_black_tree<std::common_type_t<Args...>, Compare, Allocator>;
@@ -1686,7 +1674,7 @@ int TRBT_MEM_SPEC assert_properties(node_type* t) const {
 /* Map version */
 template <typename Pair, typename Compare, typename Allocator>
 class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
-    static_assert(impl::is_comparable_v<impl::key_type_t<Pair>, Compare>, "Key type is not comparable");
+    static_assert(impl::is_comparable_v<impl::compare_type_t<Pair>, Compare>, "Key type is not comparable");
 
     template <typename, typename, bool>
     friend class impl::trbt_iterator_base;
