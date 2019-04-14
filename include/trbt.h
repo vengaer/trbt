@@ -3018,9 +3018,6 @@ namespace impl {
                     return val == v; 
                 }), std::end(vals));
 
-                if(std::find(std::begin(vals), std::end(vals), val) != std::end(vals))
-                    std::cout << val << "\n";
-                
                 for(auto const& v : vals) {
                     if(!rbt.contains(v))
                         throw value_retention_exception{std::to_string(v) + " is not in tree\n"};
