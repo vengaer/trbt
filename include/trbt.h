@@ -934,6 +934,7 @@ TRBT_TYPE_LIST
 void TRBT_MEM_SPEC init(unsigned char thread) {
     header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, thread);
     header_->left = header_;
+    size_ = 0u;
 
     if(header_->is_leaf())
         header_->right = header_;
@@ -2276,6 +2277,7 @@ TRBT_MAP_TYPE_LIST
 void TRBT_MAP_MEM_SPEC init(unsigned char thread) {
     header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, thread);
     header_->left = header_;
+    size_ = 0u;
 
     if(header_->is_leaf())
         header_->right = header_;
