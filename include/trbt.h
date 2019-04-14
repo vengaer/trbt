@@ -2980,7 +2980,7 @@ TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC upper_bound(value_type const& value, node_ty
 #ifdef TRBT_DEBUG
 namespace impl {
     namespace debug {
-        void run_test(int test_size = 2000) {
+        inline void run_test(int test_size = 2000) {
             std::cout << "Running test with size " << test_size << std::endl;
             std::random_device rd;
             std::mt19937 mt{std::random_device{}()};
