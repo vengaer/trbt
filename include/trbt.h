@@ -62,7 +62,7 @@ namespace impl {
     inline bool constexpr is_comparable_v = is_comparable<Value, Compare>::value;
 
     template <typename T>
-    using remove_cvref = std::remove_reference<std::remove_cv_t<T>>;
+    using remove_cvref = std::remove_cv<std::remove_reference_t<T>>;
 
     template <typename T>
     using remove_cvref_t = typename remove_cvref<T>::type;
