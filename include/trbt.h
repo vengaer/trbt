@@ -572,6 +572,7 @@ TRBT_TYPE_LIST
 TRBT_MEM_SPEC red_black_tree(red_black_tree&& other) : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
     /* Reset other to empty state */
     other.init(0x3);
+    other.size_ = 0u;
 }
 
 TRBT_TYPE_LIST
@@ -934,7 +935,6 @@ TRBT_TYPE_LIST
 void TRBT_MEM_SPEC init(unsigned char thread) {
     header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, thread);
     header_->left = header_;
-    size_ = 0u;
 
     if(header_->is_leaf())
         header_->right = header_;
@@ -1913,6 +1913,7 @@ TRBT_MAP_MEM_SPEC red_black_tree(red_black_tree const& other) {
 TRBT_MAP_TYPE_LIST
 TRBT_MAP_MEM_SPEC red_black_tree(red_black_tree&& other) : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
     other.init(0x3);
+    other.size_ = 0u;
 }
 
 TRBT_MAP_TYPE_LIST
@@ -2277,7 +2278,6 @@ TRBT_MAP_TYPE_LIST
 void TRBT_MAP_MEM_SPEC init(unsigned char thread) {
     header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, thread);
     header_->left = header_;
-    size_ = 0u;
 
     if(header_->is_leaf())
         header_->right = header_;
