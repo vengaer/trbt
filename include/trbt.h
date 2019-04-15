@@ -178,7 +178,7 @@ namespace impl {
     } /* namespace debug */
     #endif
 
-    template <typename Container, typename Derived, bool is_reverse = false>
+    template <typename Container, typename Derived, bool is_const = false, bool is_reverse = false>
     class trbt_iterator_base {
         protected:
             using node_type = node<typename Container::value_type>;
@@ -186,6 +186,12 @@ namespace impl {
             using value_type        = typename Container::value_type;
             using difference_type   = std::ptrdiff_t;
             using iterator_category = std::bidirectional_iterator_tag;
+            using reference         = std::conditional_t<is_const, typename Container::const_reference, 
+                                                                   typename Container::reference>;
+            using const_reference   = typename Container::const_reference;
+            using pointer           = std::conditional_t<is_const, typename Container::const_pointer,
+                                                                   typename Container::pointer>;
+            using const_pointer     = typename Container::const_pointer;
 
             explicit trbt_iterator_base(Container* cont) : parent_{cont}, current_{parent_->header_} { }
             trbt_iterator_base(Container* cont, node_type* t) : parent_{cont}, current_{t} { }
@@ -238,6 +244,22 @@ namespace impl {
                 return next;
             }
 
+            reference operator*() {
+                return this->current_->value;
+            }
+            
+            const_reference operator*() const {
+                return this->current_->value;
+            }
+
+            pointer operator->() {
+                return std::addressof(this->current_->value);
+            }
+        
+            const_pointer operator->() const {
+                return std::addressof(this->current_->value);
+            }
+
         private:
             Container* parent_;
         protected:
@@ -245,8 +267,8 @@ namespace impl {
     };
 
     template <typename Container, bool is_reverse>
-    class trbt_iterator_type : public trbt_iterator_base<Container, trbt_iterator_type<Container, is_reverse>, is_reverse> {
-        using base      = trbt_iterator_base<Container, trbt_iterator_type<Container, is_reverse>, is_reverse>;
+    class trbt_iterator_type : public trbt_iterator_base<Container, trbt_iterator_type<Container, is_reverse>, false, is_reverse> {
+        using base      = trbt_iterator_base<Container, trbt_iterator_type<Container, is_reverse>, false, is_reverse>;
         using node_type = typename base::node_type;
         public:
             using difference_type   = typename base::difference_type;
@@ -259,53 +281,21 @@ namespace impl {
 
             using base::base;
 
-            reference operator*() {
-                return this->current_->value;
-            }
-            
-            const_reference operator*() const {
-                return this->current_->value;
-            }
-
-            pointer operator->() {
-                return std::addressof(this->current_->value);
-            }
-        
-            const_pointer operator->() const {
-                return std::addressof(this->current_->value);
-            }
     };
     
     template <typename Container, bool is_reverse>
-    class trbt_const_iterator_type : public trbt_iterator_base<Container const, trbt_const_iterator_type<Container const, is_reverse>, is_reverse> {
-        using base      = trbt_iterator_base<Container const, trbt_const_iterator_type<Container const, is_reverse>, is_reverse>;
-        using node_type = typename base::node_type;
+    class trbt_const_iterator_type : public trbt_iterator_base<Container const, trbt_const_iterator_type<Container const, is_reverse>, true, is_reverse> {
+        using base      = trbt_iterator_base<Container const, trbt_const_iterator_type<Container const, is_reverse>, true, is_reverse>;
         public:
             using difference_type   = typename base::difference_type;
             using value_type        = typename base::value_type;
-            using reference         = typename Container::const_reference;
-            using const_reference   = typename Container::const_reference;
-            using pointer           = typename Container::const_pointer;
-            using const_pointer     = typename Container::const_pointer;
+            using reference         = typename base::reference;
+            using const_reference   = typename base::const_reference;
+            using pointer           = typename base::pointer;
+            using const_pointer     = typename base::const_pointer;
             using iterator_category = typename base::iterator_category;
 
             using base::base;
-            
-            reference operator*() {
-                return this->current_->value;
-            }
-            
-            const_reference operator*() const {
-                return this->current_->value;
-            }
-
-            pointer operator->() {
-                return std::addressof(this->current_->value);
-            }
-        
-            const_pointer operator->() const {
-                return std::addressof(this->current_->value);
-            }
     };
 
     template <typename Container>
@@ -327,7 +317,7 @@ template <typename Value,
 class red_black_tree {
     static_assert(impl::is_comparable_v<impl::compare_type_t<Value>, Compare>, "Value type is not comparable");
 
-    template <typename, typename, bool>
+    template <typename, typename, bool, bool>
     friend class impl::trbt_iterator_base;
 
     using Alloc     = typename std::allocator_traits<Allocator>::template rebind_alloc<impl::node<Value>>;
@@ -1677,7 +1667,7 @@ template <typename Pair, typename Compare, typename Allocator>
 class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
     static_assert(impl::is_comparable_v<impl::compare_type_t<Pair>, Compare>, "Key type is not comparable");
 
-    template <typename, typename, bool>
+    template <typename, typename, bool, bool>
     friend class impl::trbt_iterator_base;
 
     using Key       = typename Pair::first_type;
