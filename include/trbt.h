@@ -1,6 +1,8 @@
 #ifndef TRBT_H
 #define TRBT_H
 
+/* TODO: find. operator[] and at for map*/
+
 #define TRBT_TYPE_LIST template <typename Value, typename Compare, typename Allocator, typename Void>
 #define TRBT_MEM_SPEC red_black_tree<Value, Compare, Allocator, Void>::
 #define TRBT_NODE_PTR typename TRBT_MEM_SPEC node_type*
@@ -68,7 +70,7 @@ namespace impl {
     using remove_cvref_t = typename remove_cvref<T>::type;
 
     template <typename T,typename U>
-    using disable_if_same = std::enable_if_t<!std::is_same_v<remove_cvref_t<T>, U>>;
+    using disable_if_same = std::enable_if_t<!std::is_same_v<remove_cvref_t<T>, remove_cvref_t<U>>>;
 
     template <typename, typename = void>
     struct satisfies_input_iterator : std::false_type { };
@@ -84,7 +86,7 @@ namespace impl {
     using enable_if_iterator = std::enable_if_t<satisfies_input_iterator<T>::value>;
 
     template <typename T, typename U>
-    using enable_if_convertible = std::enable_if_t<std::is_convertible_v<T, U>>;
+    using enable_if_convertible = std::enable_if_t<std::is_convertible_v<remove_cvref_t<T>, remove_cvref_t<U>>>;
     
     template <typename T>
     struct type_is {
@@ -106,11 +108,20 @@ namespace impl {
     template <typename K, typename M>
     struct is_pair<std::pair<K, M>> : std::true_type { };
 
+    template <typename K, typename M>
+    struct is_pair<std::pair<K, M> const> : std::true_type { };
+
+    template <typename K, typename M>
+    struct is_pair<std::pair<K, M> volatile> : std::true_type { };
+
+    template <typename K, typename M>
+    struct is_pair<std::pair<K, M> const volatile> : std::true_type { };
+
     template <typename T>
     inline bool constexpr is_pair_v = is_pair<T>::value;
 
     template <typename... Ts>
-    using enable_if_pair = std::enable_if_t<(is_pair_v<Ts> && ...)>;
+    using enable_if_pair = std::enable_if_t<(is_pair_v<remove_cvref_t<Ts>> && ...)>;
 
     enum class Color { Red, Black };
     enum class Direction { Left, Right };
@@ -311,11 +322,11 @@ namespace impl {
 } /* namespace impl */
 
 template <typename Value, 
-          typename Compare = std::less<impl::compare_type_t<Value>>, 
+          typename Compare = std::less<impl::compare_type_t<impl::remove_cvref_t<Value>>>, 
           typename Allocator = std::allocator<Value>,
           typename = void> /* Used with SFINAE in order to detect map type */
 class red_black_tree {
-    static_assert(impl::is_comparable_v<impl::compare_type_t<Value>, Compare>, "Value type is not comparable");
+    static_assert(impl::is_comparable_v<impl::compare_type_t<impl::remove_cvref_t<Value>>, Compare>, "Value type is not comparable");
 
     template <typename, typename, bool, bool>
     friend class impl::trbt_iterator_base;
@@ -518,7 +529,7 @@ red_black_tree(InputIt, InputIt, Allocator)
 
 /* Catches map overload as well */
 template <typename... Args, 
-          typename Compare = std::less<impl::compare_type_t<std::common_type_t<Args...>>>,
+          typename Compare = std::less<impl::compare_type_t<impl::remove_cvref_t<std::common_type_t<Args...>>>>,
           typename Allocator = std::allocator<std::common_type_t<Args...>>>
 red_black_tree(Args...)
     -> red_black_tree<std::common_type_t<Args...>, Compare, Allocator>;
@@ -1665,7 +1676,7 @@ int TRBT_MEM_SPEC assert_properties(node_type* t) const {
 /* Map version */
 template <typename Pair, typename Compare, typename Allocator>
 class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
-    static_assert(impl::is_comparable_v<impl::compare_type_t<Pair>, Compare>, "Key type is not comparable");
+    static_assert(impl::is_comparable_v<impl::compare_type_t<impl::remove_cvref_t<Pair>>, Compare>, "Key type is not comparable");
 
     template <typename, typename, bool, bool>
     friend class impl::trbt_iterator_base;
@@ -1864,6 +1875,14 @@ template <typename Key,
           typename Allocator = std::allocator<std::pair<Key, Mapped>>>
 red_black_tree(std::pair<Key, Mapped>)
     -> red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>;
+
+template <template <typename, typename> typename Pair,
+          typename Key, 
+          typename... Mapped, 
+          typename Compare = std::less<Key>, 
+          typename Allocator = std::allocator<std::pair<Key, std::common_type_t<Mapped...>>>>
+red_black_tree(Pair<Key, Mapped>...)
+    -> red_black_tree<std::pair<Key const, std::common_type_t<Mapped...>>, Compare, Allocator>;
 
 /* Map members */
 TRBT_MAP_TYPE_LIST
