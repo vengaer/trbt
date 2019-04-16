@@ -1,8 +1,6 @@
 #ifndef TRBT_H
 #define TRBT_H
 
-/* TODO: find. operator[] and at for map*/
-
 #define TRBT_TYPE_LIST template <typename Value, typename Compare, typename Allocator, typename Void>
 #define TRBT_MEM_SPEC red_black_tree<Value, Compare, Allocator, Void>::
 #define TRBT_NODE_PTR typename TRBT_MEM_SPEC node_type*
@@ -26,12 +24,15 @@
 #define TRBT_MAP_RED_BLACK_TREE_REF red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>&
 #define TRBT_MAP_ALLOCATOR_TYPE typename TRBT_MAP_MEM_SPEC allocator_type
 #define TRBT_MAP_INSERT_RETURN_PAIR std::pair<TRBT_MAP_ITER_TYPE, bool>
+#define TRBT_MAP_MAPPED_REF typename TRBT_MAP_MEM_SPEC mapped_type&
+#define TRBT_MAP_MAPPED_CONST_REF typename TRBT_MAP_MEM_SPEC mapped_type const&
 
 #pragma once
 #include <cstddef>
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -123,6 +124,67 @@ namespace impl {
     template <typename... Ts>
     using enable_if_pair = std::enable_if_t<(is_pair_v<remove_cvref_t<Ts>> && ...)>;
 
+    template <typename, typename = void>
+    struct has_mapped_type : std::false_type { };
+
+    template <typename T>
+    struct has_mapped_type<T, std::void_t<typename T::mapped_type>> : std::true_type { };
+    
+    template <typename T>
+    inline bool constexpr has_mapped_type_v = has_mapped_type<T>::value;
+
+    template <typename T>
+    struct add_const_if_ref : type_is<T> { };
+
+    template <typename T>
+    struct add_const_if_ref<T&> : type_is<T const&> { };
+
+    template <typename T>
+    using add_const_if_ref_t = typename add_const_if_ref<T>::type;
+
+    template <typename T>
+    struct add_const_if_ptr : type_is<T> { };
+
+    template <typename T>
+    struct add_const_if_ptr<T*> : type_is<T const*> { };
+
+    template <typename T>
+    using add_const_if_ptr_t = typename add_const_if_ptr<T>::type;
+
+    template <typename T, typename P0, typename... P1toN>
+    struct is_one_of : std::conditional_t<std::is_same_v<T, P0>,
+                                          std::true_type,
+                                          is_one_of<T, P1toN...>> { };
+
+    template <typename T, typename P0>
+    struct is_one_of<T, P0> : std::is_same<T, P0> { };
+
+    template <typename T, typename P0, typename... P1toN>
+    inline bool constexpr is_one_of_v = is_one_of<T, P0, P1toN...>::value;
+
+    struct const_tag { };
+    struct reverse_tag { };
+    struct non_const_tag { };
+    struct non_reverse_tag { };
+
+    template <typename T>
+    struct requests_const : std::false_type { };
+
+    template <>
+    struct requests_const<const_tag> : std::true_type { };
+
+    template <typename T>
+    inline bool constexpr requests_const_v = requests_const<T>::value;
+
+    template <typename T>
+    struct requests_reverse : std::false_type { };
+
+    template <>
+    struct requests_reverse<reverse_tag> : std::true_type { };
+
+    template <typename T>
+    inline bool constexpr requests_reverse_v = requests_reverse<T>::value;
+
     enum class Color { Red, Black };
     enum class Direction { Left, Right };
 
@@ -189,68 +251,82 @@ namespace impl {
     } /* namespace debug */
     #endif
 
-    template <typename Container, typename Derived, bool is_const = false, bool is_reverse = false>
-    class trbt_iterator_base {
-        protected:
-            using node_type = node<typename Container::value_type>;
+
+    template <typename Container, typename ConstTag, typename ReverseTag>
+    class iterator_base {
+        static_assert(is_one_of_v<ConstTag, const_tag, non_const_tag>);
+        static_assert(is_one_of_v<ReverseTag, reverse_tag, non_reverse_tag>);
+
+        using node_type           = node<typename Container::value_type>;
+
+        /* If Container has mapped_type, reference and pointer should be allowed to modify values,
+         * otherwise they should be const */
+        using container_reference = std::conditional_t<has_mapped_type_v<Container>,
+                                                       typename Container::reference,
+                                                       add_const_if_ref_t<typename Container::reference>>;
+        using container_pointer   = std::conditional_t<has_mapped_type_v<Container>,
+                                                       typename Container::pointer,
+                                                       add_const_if_ptr_t<typename Container::pointer>>;
         public:
             using value_type        = typename Container::value_type;
             using difference_type   = std::ptrdiff_t;
             using iterator_category = std::bidirectional_iterator_tag;
-            using reference         = std::conditional_t<is_const, typename Container::const_reference, 
-                                                                   typename Container::reference>;
+            using reference         = std::conditional_t<requests_const_v<ConstTag>, 
+                                                         typename Container::const_reference, 
+                                                         container_reference>;
             using const_reference   = typename Container::const_reference;
-            using pointer           = std::conditional_t<is_const, typename Container::const_pointer,
-                                                                   typename Container::pointer>;
+            using pointer           = std::conditional_t<requests_const_v<ConstTag>, 
+                                                         typename Container::const_pointer,
+                                                         container_pointer>;
             using const_pointer     = typename Container::const_pointer;
 
-            explicit trbt_iterator_base(Container* cont) : parent_{cont}, current_{parent_->header_} { }
-            trbt_iterator_base(Container* cont, node_type* t) : parent_{cont}, current_{t} { }
+            explicit iterator_base(Container* cont) : parent_{cont}, current_{parent_->header_} { }
+            iterator_base(Container* cont, node_type* t) : parent_{cont}, current_{t} { }
 
-            Derived& operator=(trbt_iterator_base const& rhs) & {
+            iterator_base& operator=(iterator_base const& rhs) & {
                 this->parent_ = rhs.parent_;
                 this->current_ = rhs.current_;
-                return static_cast<Derived&>(*this);
+                return *this;
             }
         
-            friend void swap(trbt_iterator_base& left, trbt_iterator_base& right) noexcept {
+            friend void swap(iterator_base& left, iterator_base& right) noexcept {
                 auto temp = std::move(left);
                 left = std::move(right);
                 right = std::move(temp);
             }
 
-            friend bool operator==(trbt_iterator_base const& left, trbt_iterator_base const& right) {
+            friend bool operator==(iterator_base const& left, iterator_base const& right) {
                 return left.current_ == right.current_;
             }
 
-            friend bool operator!=(trbt_iterator_base const& left, trbt_iterator_base const& right) {
+            friend bool operator!=(iterator_base const& left, iterator_base const& right) {
                 return !(left == right);
             }
     
-            Derived& operator++() {
-                if constexpr(is_reverse)
+            iterator_base& operator++() {
+                if constexpr(requests_reverse_v<ReverseTag>)
                     this->current_ = this->parent_->predecessor(this->current_);
                 else
                     this->current_ = this->parent_->successor(this->current_);
-                return static_cast<Derived&>(*this);
+                return *this;
             }
 
-            Derived operator++(int) {
-                auto prev = static_cast<Derived&>(*this);
+            iterator_base operator++(int) {
+                auto prev = *this;
                 ++*this;
                 return prev;
             }
 
-            Derived& operator--() {
-                if constexpr(is_reverse)
+            iterator_base& operator--() {
+                if constexpr(requests_reverse_v<ReverseTag>)
                     this->current_ = this->parent_->successor(this->current_);
                 else
                     this->current_ = this->parent_->predecessor(this->current_);
-                return static_cast<Derived&>(*this);
+                return *this;
             }
 
-            Derived operator--(int) {
-                auto next = static_cast<Derived&>(*this);
+            iterator_base operator--(int) {
+                auto next = *this;
                 --*this;
                 return next;
             }
@@ -273,51 +349,17 @@ namespace impl {
 
         private:
             Container* parent_;
-        protected:
             node_type* current_;
     };
 
-    template <typename Container, bool is_reverse>
-    class trbt_iterator_type : public trbt_iterator_base<Container, trbt_iterator_type<Container, is_reverse>, false, is_reverse> {
-        using base      = trbt_iterator_base<Container, trbt_iterator_type<Container, is_reverse>, false, is_reverse>;
-        using node_type = typename base::node_type;
-        public:
-            using difference_type   = typename base::difference_type;
-            using value_type        = typename base::value_type;
-            using reference         = typename Container::reference;
-            using const_reference   = typename Container::const_reference;
-            using pointer           = typename Container::pointer;
-            using const_pointer     = typename Container::const_pointer;
-            using iterator_category = typename base::iterator_category;
-
-            using base::base;
-
-    };
-    
-    template <typename Container, bool is_reverse>
-    class trbt_const_iterator_type : public trbt_iterator_base<Container const, trbt_const_iterator_type<Container const, is_reverse>, true, is_reverse> {
-        using base      = trbt_iterator_base<Container const, trbt_const_iterator_type<Container const, is_reverse>, true, is_reverse>;
-        public:
-            using difference_type   = typename base::difference_type;
-            using value_type        = typename base::value_type;
-            using reference         = typename base::reference;
-            using const_reference   = typename base::const_reference;
-            using pointer           = typename base::pointer;
-            using const_pointer     = typename base::const_pointer;
-            using iterator_category = typename base::iterator_category;
-
-            using base::base;
-    };
-
     template <typename Container>
-    using iterator = trbt_iterator_type<Container, false>;
+    using iterator = iterator_base<Container, non_const_tag, non_reverse_tag>;
     template <typename Container>
-    using reverse_iterator = trbt_iterator_type<Container, true>;
-
+    using reverse_iterator = iterator_base<Container, non_const_tag, reverse_tag>;
     template <typename Container>
-    using const_iterator = trbt_const_iterator_type<Container, false>;
+    using const_iterator = iterator_base<Container, const_tag, non_reverse_tag>;
     template <typename Container>
-    using const_reverse_iterator = trbt_const_iterator_type<Container, true>;
+    using const_reverse_iterator = iterator_base<Container, const_tag, reverse_tag>;
 
 } /* namespace impl */
 
@@ -328,8 +370,8 @@ template <typename Value,
 class red_black_tree {
     static_assert(impl::is_comparable_v<impl::compare_type_t<impl::remove_cvref_t<Value>>, Compare>, "Value type is not comparable");
 
-    template <typename, typename, bool, bool>
-    friend class impl::trbt_iterator_base;
+    template <typename, typename, typename>
+    friend class impl::iterator_base;
 
     using Alloc     = typename std::allocator_traits<Allocator>::template rebind_alloc<impl::node<Value>>;
     using Color     = impl::Color;
@@ -410,6 +452,8 @@ class red_black_tree {
 
         bool contains(value_type const& value) const;
         size_type count(value_type const& value) const;
+        iterator find(value_type const& value);
+        const_iterator find(value_type const& value) const;
 
         void swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
                                                   std::is_nothrow_swappable<Compare>::value);
@@ -467,6 +511,8 @@ class red_black_tree {
         void clear(node_type* current) noexcept;
 
         node_type* clone(node_type* pred, node_type* succ, node_type* other);
+
+        node_type* find(value_type const& value, node_type* current) const;
 
         node_type* link(node_type* node, Direction dir) const;
         node_type* min_node() const;
@@ -748,6 +794,22 @@ TRBT_SIZE_TYPE TRBT_MEM_SPEC count(value_type const& value) const {
 }
 
 TRBT_TYPE_LIST
+TRBT_ITER_TYPE TRBT_MEM_SPEC find(value_type const& value) {
+    if(empty())
+        return end();
+    
+    return iterator{this, find(value, header_->right)};
+}
+
+TRBT_TYPE_LIST
+TRBT_CONST_ITER_TYPE TRBT_MEM_SPEC find(value_type const& value) const {
+    if(empty())
+        return cend();
+    
+    return const_iterator{this, find(value, header_->right)};
+}
+
+TRBT_TYPE_LIST
 void TRBT_MEM_SPEC swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
                                                         std::is_nothrow_swappable<Compare>::value) {
     std::swap(header_, other.header_);
@@ -966,6 +1028,26 @@ TRBT_NODE_PTR TRBT_MEM_SPEC clone(node_type* pred, node_type* succ, node_type* o
         node->right = clone(node, succ, other->right);
 
     return node;
+}
+
+TRBT_TYPE_LIST
+TRBT_NODE_PTR TRBT_MEM_SPEC find(value_type const& value, node_type* current) const {
+    while(true) {
+        if(compare_(value, current->value)) {
+            if(current->has_left_child())
+                current = current->left;
+            else
+                return header_;
+        }
+        else if(compare_(current->value, value)) {
+            if(current->has_right_child())
+                current = current-> right;
+            else
+                return header_;
+        }
+        else break;
+    }
+    return current;
 }
 
 TRBT_TYPE_LIST
@@ -1678,8 +1760,8 @@ template <typename Pair, typename Compare, typename Allocator>
 class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
     static_assert(impl::is_comparable_v<impl::compare_type_t<impl::remove_cvref_t<Pair>>, Compare>, "Key type is not comparable");
 
-    template <typename, typename, bool, bool>
-    friend class impl::trbt_iterator_base;
+    template <typename, typename, typename>
+    friend class impl::iterator_base;
 
     using Key       = typename Pair::first_type;
     using Mapped    = typename Pair::second_type;
@@ -1758,6 +1840,14 @@ class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
 
         bool contains(value_type const& value) const;
         size_type count(value_type const& value) const;
+        iterator find(key_type const& value);
+        const_iterator find(key_type const& value) const;
+
+        Mapped& operator[](key_type const& key);
+        Mapped& operator[](key_type&& key);
+
+        Mapped& at(key_type const& key);
+        Mapped const& at(key_type const& key) const;
 
         void swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
                                                   std::is_nothrow_swappable<Compare>::value);
@@ -1824,6 +1914,8 @@ class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
         void clear(node_type* current) noexcept;
 
         node_type* clone(node_type* pred, node_type* succ, node_type* other);
+
+        node_type* find(key_type const& value, node_type* current) const;
 
         node_type* link(node_type* node, Direction dir) const;
         node_type* min_node() const;
@@ -2097,6 +2189,181 @@ TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC count(value_type const& value) const {
 }
 
 TRBT_MAP_TYPE_LIST
+TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC find(key_type const& value) {
+    if(empty())
+        return end();
+    
+    return iterator{this, find(value, header_->right)};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC find(key_type const& value) const {
+    if(empty())
+        return cend();
+    
+    return const_iterator{this, find(value, header_->right)};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC operator[](key_type const& key) {
+    if(empty())
+        return (*insert(std::pair{key, mapped_type{}}, header_->right).first).second;
+    
+    node_type *current = header_->right, *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+
+    Direction dir;
+
+    while(true) {
+        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
+        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+            move_red_up(current, parent, grandparent, great_grandparent);
+
+        great_grandparent = grandparent;
+        grandparent = parent;
+        parent = current;
+    
+        if(compare_(key, current->value.first)) {
+            dir = Direction::Left;
+
+            if(!current->has_left_child())
+                break;
+            
+        }
+        else if(compare_(current->value.first, key)) {
+            dir = Direction::Right;
+            
+            if(!current->has_right_child()) 
+                break;
+            
+        }
+        /* Already in tree */
+        else {
+            /* Ensure root is black */
+            header_->right->color = Color::Black;
+            return current->value.second;
+        }
+
+        /* Move down */
+        current = link(current, dir);
+    }
+
+    move_red_up(current, parent, grandparent, great_grandparent);
+
+    /* Ensure root is black */
+    header_->right->color = Color::Black;
+    ++size_;
+    
+    return (*insert(std::pair{key, mapped_type{}}, current).first).second;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC operator[](key_type&& key) {
+    if(empty())
+        return (*insert(std::pair{std::move(key), mapped_type{}}, header_->right).first).second;
+    
+    node_type *current = header_->right, *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+
+    Direction dir;
+
+    while(true) {
+        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
+        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+            move_red_up(current, parent, grandparent, great_grandparent);
+
+        great_grandparent = grandparent;
+        grandparent = parent;
+        parent = current;
+    
+        if(compare_(key, current->value.first)) {
+            dir = Direction::Left;
+
+            if(!current->has_left_child())
+                break;
+            
+        }
+        else if(compare_(current->value.first, key)) {
+            dir = Direction::Right;
+            
+            if(!current->has_right_child()) 
+                break;
+            
+        }
+        /* Already in tree */
+        else {
+            /* Ensure root is black */
+            header_->right->color = Color::Black;
+            return current->value.second;
+        }
+
+        /* Move down */
+        current = link(current, dir);
+    }
+
+    move_red_up(current, parent, grandparent, great_grandparent);
+
+    /* Ensure root is black */
+    header_->right->color = Color::Black;
+    ++size_;
+    
+    return (*insert(std::pair{std::move(key), mapped_type{}}, current).first).second;
+
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC at(key_type const& key) {
+    if(empty())
+        throw std::out_of_range{"Specified key not in tree"};
+
+    node_type* current = header_->right;
+
+    while(true) {
+        if(compare_(key, current->value.first)) {
+            if(current->has_left_child())
+                current = current->left;
+            else
+                break;
+        }
+        else if(compare_(current->value.first, key)) {
+            if(current->has_right_child())
+                current = current->right;
+            else
+                break;
+        }
+        else
+            return current->value.second;
+    }
+
+    throw std::out_of_range{"Specified key not in tree"};
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_MAPPED_CONST_REF TRBT_MAP_MEM_SPEC at(key_type const& key) const {
+    if(empty())
+        throw std::out_of_range{"Specified key not in tree"};
+
+    node_type* current = header_->right;
+
+    while(true) {
+        if(compare_(key, current->value.first)) {
+            if(current->has_left_child())
+                current = current->left;
+            else
+                break;
+        }
+        else if(compare_(current->value.first, key)) {
+            if(current->has_right_child())
+                current = current->right;
+            else
+                break;
+        }
+        else
+            return current->value.second;
+    }
+
+    throw std::out_of_range{"Specified key not in tree"};
+}
+
+TRBT_MAP_TYPE_LIST
 void TRBT_MAP_MEM_SPEC swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
                                                         std::is_nothrow_swappable<Compare>::value) {
     std::swap(header_, other.header_);
@@ -2317,6 +2584,26 @@ TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC clone(node_type* pred, node_type* succ, node
         node->right = clone(node, succ, other->right);
 
     return node;
+}
+
+TRBT_MAP_TYPE_LIST
+TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC find(key_type const& value, node_type* current) const {
+    while(true) {
+        if(compare_(value, current->value.first)) {
+            if(current->has_left_child())
+                current = current->left;
+            else
+                return header_;
+        }
+        else if(compare_(current->value.first, value)) {
+            if(current->has_right_child())
+                current = current-> right;
+            else
+                return header_;
+        }
+        else break;
+    }
+    return current;
 }
 
 TRBT_MAP_TYPE_LIST
@@ -3064,4 +3351,6 @@ namespace impl {
 #undef TRBT_MAP_RED_BLACK_TREE_REF 
 #undef TRBT_MAP_ALLOCATOR_TYPE 
 #undef TRBT_MAP_INSERT_RETURN_PAIR 
+#undef TRBT_MAP_MAPPED_REF 
+#undef TRBT_MAP_MAPPED_CONST_REF 
 #endif
