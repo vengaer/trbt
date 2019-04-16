@@ -1770,7 +1770,6 @@ class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
     using Color     = impl::Color;
     using Direction = impl::Direction;
 
-
     public:
         using key_type               = Key;
         using mapped_type            = Mapped;
@@ -1905,7 +1904,7 @@ class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
         node_type* null_node_;
         size_type size_{};
         Alloc allocator_{};
-        Compare compare_{};
+        key_compare compare_{};
 
         template <typename T = value_type>
         node_type* allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread);
