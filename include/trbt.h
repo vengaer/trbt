@@ -24,8 +24,8 @@
 #define TRBT_MAP_RED_BLACK_TREE_REF red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>&
 #define TRBT_MAP_ALLOCATOR_TYPE typename TRBT_MAP_MEM_SPEC allocator_type
 #define TRBT_MAP_INSERT_RETURN_PAIR std::pair<TRBT_MAP_ITER_TYPE, bool>
-#define TRBT_MAP_MAPPED_REF typename TRBT_MAP_MEM_SPEC mapped_type&
-#define TRBT_MAP_MAPPED_CONST_REF typename TRBT_MAP_MEM_SPEC mapped_type const&
+#define TRBT_MAP_MAPPED_TYPE_REF typename TRBT_MAP_MEM_SPEC mapped_type&
+#define TRBT_MAP_MAPPED_TYPE_CONST_REF typename TRBT_MAP_MEM_SPEC mapped_type const&
 
 #pragma once
 #include <cstddef>
@@ -2204,7 +2204,7 @@ TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC find(key_type const& value) const {
 }
 
 TRBT_MAP_TYPE_LIST
-TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC operator[](key_type const& key) {
+TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type const& key) {
     if(empty())
         return (*insert(std::pair{key, mapped_type{}}, header_->right).first).second;
     
@@ -2256,7 +2256,7 @@ TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC operator[](key_type const& key) {
 }
 
 TRBT_MAP_TYPE_LIST
-TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC operator[](key_type&& key) {
+TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type&& key) {
     if(empty())
         return (*insert(std::pair{std::move(key), mapped_type{}}, header_->right).first).second;
     
@@ -2309,7 +2309,7 @@ TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC operator[](key_type&& key) {
 }
 
 TRBT_MAP_TYPE_LIST
-TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC at(key_type const& key) {
+TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC at(key_type const& key) {
     if(empty())
         throw std::out_of_range{"Specified key not in tree"};
 
@@ -2336,7 +2336,7 @@ TRBT_MAP_MAPPED_REF TRBT_MAP_MEM_SPEC at(key_type const& key) {
 }
 
 TRBT_MAP_TYPE_LIST
-TRBT_MAP_MAPPED_CONST_REF TRBT_MAP_MEM_SPEC at(key_type const& key) const {
+TRBT_MAP_MAPPED_TYPE_CONST_REF TRBT_MAP_MEM_SPEC at(key_type const& key) const {
     if(empty())
         throw std::out_of_range{"Specified key not in tree"};
 
@@ -3350,6 +3350,6 @@ namespace impl {
 #undef TRBT_MAP_RED_BLACK_TREE_REF 
 #undef TRBT_MAP_ALLOCATOR_TYPE 
 #undef TRBT_MAP_INSERT_RETURN_PAIR 
-#undef TRBT_MAP_MAPPED_REF 
-#undef TRBT_MAP_MAPPED_CONST_REF 
+#undef TRBT_MAP_MAPPED_TYPE_REF 
+#undef TRBT_MAP_MAPPED_TYPE_CONST_REF 
 #endif
