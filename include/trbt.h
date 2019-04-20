@@ -1,32 +1,6 @@
 #ifndef TRBT_H
 #define TRBT_H
 
-#define TRBT_TYPE_LIST template <typename Value, typename Compare, typename Allocator, typename Void>
-#define TRBT_MEM_SPEC red_black_tree<Value, Compare, Allocator, Void>::
-#define TRBT_NODE_PTR typename TRBT_MEM_SPEC node_type*
-#define TRBT_SIZE_TYPE typename TRBT_MEM_SPEC size_type
-#define TRBT_ITER_TYPE typename TRBT_MEM_SPEC iterator
-#define TRBT_CONST_ITER_TYPE typename TRBT_MEM_SPEC const_iterator
-#define TRBT_REVERSE_ITER_TYPE typename TRBT_MEM_SPEC reverse_iterator
-#define TRBT_CONST_REVERSE_ITER_TYPE typename TRBT_MEM_SPEC const_reverse_iterator
-#define TRBT_RED_BLACK_TREE_REF red_black_tree<Value, Compare, Allocator, Void>&
-#define TRBT_ALLOCATOR_TYPE typename TRBT_MEM_SPEC allocator_type
-#define TRBT_INSERT_RETURN_PAIR std::pair<TRBT_ITER_TYPE, bool>
-
-#define TRBT_MAP_TYPE_LIST template <typename Pair, typename Compare, typename Allocator>
-#define TRBT_MAP_MEM_SPEC red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::
-#define TRBT_MAP_NODE_PTR typename TRBT_MAP_MEM_SPEC node_type*
-#define TRBT_MAP_SIZE_TYPE typename TRBT_MAP_MEM_SPEC size_type
-#define TRBT_MAP_ITER_TYPE typename TRBT_MAP_MEM_SPEC iterator
-#define TRBT_MAP_CONST_ITER_TYPE typename TRBT_MAP_MEM_SPEC const_iterator
-#define TRBT_MAP_REVERSE_ITER_TYPE typename TRBT_MAP_MEM_SPEC reverse_iterator
-#define TRBT_MAP_CONST_REVERSE_ITER_TYPE typename TRBT_MAP_MEM_SPEC const_reverse_iterator
-#define TRBT_MAP_RED_BLACK_TREE_REF red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>&
-#define TRBT_MAP_ALLOCATOR_TYPE typename TRBT_MAP_MEM_SPEC allocator_type
-#define TRBT_MAP_INSERT_RETURN_PAIR std::pair<TRBT_MAP_ITER_TYPE, bool>
-#define TRBT_MAP_MAPPED_TYPE_REF typename TRBT_MAP_MEM_SPEC mapped_type&
-#define TRBT_MAP_MAPPED_TYPE_CONST_REF typename TRBT_MAP_MEM_SPEC mapped_type const&
-
 #pragma once
 #include <cstddef>
 #include <functional>
@@ -168,19 +142,25 @@ namespace impl {
     struct non_reverse_tag { };
 
     template <typename T>
-    struct requests_const : std::false_type { };
+    struct requests_const;
 
     template <>
     struct requests_const<const_tag> : std::true_type { };
+    
+    template <>
+    struct requests_const<non_const_tag> : std::false_type { };
 
     template <typename T>
     inline bool constexpr requests_const_v = requests_const<T>::value;
 
     template <typename T>
-    struct requests_reverse : std::false_type { };
+    struct requests_reverse;
 
     template <>
     struct requests_reverse<reverse_tag> : std::true_type { };
+
+    template <>
+    struct requests_reverse<non_reverse_tag> : std::false_type { };
 
     template <typename T>
     inline bool constexpr requests_reverse_v = requests_reverse<T>::value;
@@ -252,10 +232,10 @@ namespace impl {
     #endif
 
 
-    template <typename Container, typename ConstTag, typename ReverseTag>
+    template <typename Derived, typename Container, typename ConstTag, typename ReverseTag>
     class iterator_base {
-        static_assert(is_one_of_v<ConstTag, const_tag, non_const_tag>);
-        static_assert(is_one_of_v<ReverseTag, reverse_tag, non_reverse_tag>);
+        template <typename, typename>
+        friend class const_iterator_type;
 
         using node_type           = node<typename Container::value_type>;
 
@@ -283,10 +263,10 @@ namespace impl {
             explicit iterator_base(Container* cont) : parent_{cont}, current_{parent_->header_} { }
             iterator_base(Container* cont, node_type* t) : parent_{cont}, current_{t} { }
 
-            iterator_base& operator=(iterator_base const& rhs) & {
+            Derived& operator=(iterator_base const& rhs) & {
                 this->parent_ = rhs.parent_;
                 this->current_ = rhs.current_;
-                return *this;
+                return static_cast<Derived&>(*this);
             }
         
             friend void swap(iterator_base& left, iterator_base& right) noexcept {
@@ -303,30 +283,31 @@ namespace impl {
                 return !(left == right);
             }
     
-            iterator_base& operator++() {
-                if constexpr(requests_reverse_v<ReverseTag>)
+            Derived& operator++() {
+                if constexpr(requests_reverse_v<ReverseTag>) 
                     this->current_ = this->parent_->predecessor(this->current_);
-                else
+                else 
                     this->current_ = this->parent_->successor(this->current_);
-                return *this;
+
+                return static_cast<Derived&>(*this);
             }
 
-            iterator_base operator++(int) {
-                auto prev = *this;
+            Derived operator++(int) {
+                auto prev = static_cast<Derived&>(*this);
                 ++*this;
                 return prev;
             }
 
-            iterator_base& operator--() {
+            Derived& operator--() {
                 if constexpr(requests_reverse_v<ReverseTag>)
                     this->current_ = this->parent_->successor(this->current_);
                 else
                     this->current_ = this->parent_->predecessor(this->current_);
-                return *this;
+                return static_cast<Derived&>(*this);
             }
 
             iterator_base operator--(int) {
-                auto next = *this;
+                auto next = static_cast<Derived&>(*this);
                 --*this;
                 return next;
             }
@@ -351,15 +332,37 @@ namespace impl {
             Container* parent_;
             node_type* current_;
     };
+    
+    template <typename Container, typename ReverseTag>
+    class iterator_type : public iterator_base<iterator_type<Container, ReverseTag>, Container, non_const_tag, ReverseTag> { 
+        using base = iterator_base<iterator_type<Container, ReverseTag>, Container, non_const_tag, ReverseTag>;
+        public:
+            using base::base;
+    };
+
+    template <typename Container, typename ReverseTag>
+    class const_iterator_type : public iterator_base<const_iterator_type<Container const, ReverseTag>, Container const, const_tag, ReverseTag> {
+        using base = iterator_base<const_iterator_type<Container const, ReverseTag>, Container const, const_tag, ReverseTag>;
+        public: 
+            using base::base;
+    
+            const_iterator_type(iterator_type<Container, ReverseTag> const& other) : base{other.parent_, other.current_} { }
+
+            const_iterator_type& operator=(iterator_type<Container, ReverseTag> const& other) & {
+                this->parent_ = other.parent_;
+                this->current_ = other.current_;
+                return *this;
+            }
+    };
 
     template <typename Container>
-    using iterator = iterator_base<Container, non_const_tag, non_reverse_tag>;
+    using iterator = iterator_type<Container, non_reverse_tag>;
     template <typename Container>
-    using reverse_iterator = iterator_base<Container, non_const_tag, reverse_tag>;
+    using reverse_iterator = iterator_type<Container, reverse_tag>;
     template <typename Container>
-    using const_iterator = iterator_base<Container, const_tag, non_reverse_tag>;
+    using const_iterator = const_iterator_type<Container, non_reverse_tag>;
     template <typename Container>
-    using const_reverse_iterator = iterator_base<Container, const_tag, reverse_tag>;
+    using const_reverse_iterator = const_iterator_type<Container, reverse_tag>;
 
 } /* namespace impl */
 
@@ -370,7 +373,7 @@ template <typename Value,
 class red_black_tree {
     static_assert(impl::is_comparable_v<impl::compare_type_t<impl::remove_cvref_t<Value>>, Compare>, "Value type is not comparable");
 
-    template <typename, typename, typename>
+    template <typename, typename, typename, typename>
     friend class impl::iterator_base;
 
     using Alloc     = typename std::allocator_traits<Allocator>::template rebind_alloc<impl::node<Value>>;
@@ -444,9 +447,7 @@ class red_black_tree {
         std::pair<iterator, bool> emplace(Args&&... args);
 
         template <typename... Args>
-        iterator emplace_hint(iterator, Args&&... args);
-        template <typename... Args>
-        iterator emplace_hint(const_iterator, Args&&... args);
+        iterator emplace_hint(const_iterator hint, Args&&... args);
 
         size_type erase(value_type const& value);
 
@@ -529,8 +530,8 @@ class red_black_tree {
         static node_type* left_left_rotate(node_type* root, node_type* parent);
         static node_type* right_right_rotate(node_type* root, node_type* parent);
 
-        void move_red_up(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
-        void move_red_down(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
+        void balance_before_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
+        void balance_before_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
 
         node_type* unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent);
 
@@ -581,87 +582,91 @@ red_black_tree(Args...)
     -> red_black_tree<std::common_type_t<Args...>, Compare, Allocator>;
 
 /* Member functions */
-TRBT_TYPE_LIST
-TRBT_MEM_SPEC red_black_tree() {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+red_black_tree<Value, Compare, Allocator, Void>::red_black_tree() {
     init(0x3);
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename T, typename>
-TRBT_MEM_SPEC red_black_tree(T&& value) {
+red_black_tree<Value, Compare, Allocator, Void>::red_black_tree(T&& value) {
     init(0x2);
     header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename... Args, typename>
-TRBT_MEM_SPEC red_black_tree(Args&&... values) {
+red_black_tree<Value, Compare, Allocator, Void>::red_black_tree(Args&&... values) {
     init(0x3);
     (insert(std::forward<Args>(values)), ...);
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename InputIt, typename>
-TRBT_MEM_SPEC red_black_tree(InputIt first, InputIt last) {
+red_black_tree<Value, Compare, Allocator, Void>::red_black_tree(InputIt first, InputIt last) {
     init(0x3);
     insert(first, last);
 }
 
-TRBT_TYPE_LIST
-TRBT_MEM_SPEC red_black_tree(red_black_tree const& other) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+red_black_tree<Value, Compare, Allocator, Void>::red_black_tree(red_black_tree const& other) {
     init(other.header_->thread);
     size_ = other.size_;
     if(!other.header_->is_leaf())
         header_->right = clone(header_, header_, other.header_->right);
 }
 
-TRBT_TYPE_LIST
-TRBT_MEM_SPEC red_black_tree(red_black_tree&& other) : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+red_black_tree<Value, Compare, Allocator, Void>::red_black_tree(red_black_tree&& other) : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
     /* Reset other to empty state */
     other.init(0x3);
     other.size_ = 0u;
 }
 
-TRBT_TYPE_LIST
-TRBT_MEM_SPEC ~red_black_tree() {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+red_black_tree<Value, Compare, Allocator, Void>::~red_black_tree() {
     clear();
     allocator_.deallocate(header_, 1u);
     allocator_.deallocate(null_node_, 1u);
 }
 
-TRBT_TYPE_LIST
-TRBT_RED_BLACK_TREE_REF TRBT_MEM_SPEC operator=(red_black_tree const& other) & {
-    auto cpy{other};
-    std::swap(header_, cpy.header_);
-    std::swap(size_, cpy.size_);
-    return *this;
+template <typename Value, typename Compare, typename Allocator, typename Void>
+red_black_tree<Value, Compare, Allocator, Void>& 
+red_black_tree<Value, Compare, Allocator, Void>::operator=(red_black_tree const& other) & {
+auto cpy{other};
+std::swap(header_, cpy.header_);
+std::swap(size_, cpy.size_);
+return *this;
 }
 
-TRBT_TYPE_LIST
-TRBT_RED_BLACK_TREE_REF TRBT_MEM_SPEC operator=(red_black_tree&& other) & {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+red_black_tree<Value, Compare, Allocator, Void>& 
+red_black_tree<Value, Compare, Allocator, Void>::operator=(red_black_tree&& other) & {
     init(0x3);
     std::swap(header_, other.header_);
     std::swap(size_, other.size_);
     return *this;
 }
 
-TRBT_TYPE_LIST
-bool TRBT_MEM_SPEC empty() const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+bool red_black_tree<Value, Compare, Allocator, Void>::empty() const {
     return header_->thread & 0x1;
 }
 
-TRBT_TYPE_LIST
-TRBT_SIZE_TYPE TRBT_MEM_SPEC size() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::size_type
+red_black_tree<Value, Compare, Allocator, Void>::size() const noexcept {
     return size_;
 }
 
-TRBT_TYPE_LIST
-TRBT_SIZE_TYPE TRBT_MEM_SPEC max_size() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::size_type
+red_black_tree<Value, Compare, Allocator, Void>::max_size() const noexcept {
     return std::allocator_traits<Alloc>::max_size(allocator_);
 }
 
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC clear() noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::clear() noexcept {
     if(!empty()) {
         clear(header_->right);
         
@@ -671,14 +676,15 @@ void TRBT_MEM_SPEC clear() noexcept {
     }
 }
 
-TRBT_TYPE_LIST
-TRBT_ALLOCATOR_TYPE TRBT_MEM_SPEC get_allocator() const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::allocator_type 
+red_black_tree<Value, Compare, Allocator, Void>::get_allocator() const {
     return allocator_;
 }
 
 #ifdef TRBT_DEBUG
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC print() const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::print() const {
     if(empty())
         std::cout << "Tree is empty\n";
     else
@@ -686,9 +692,10 @@ void TRBT_MEM_SPEC print() const {
 }
 #endif
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename T, typename>
-TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC insert(T&& value) {
+std::pair<typename red_black_tree<Value, Compare, Allocator, Void>::iterator, bool> 
+red_black_tree<Value, Compare, Allocator, Void>::insert(T&& value) {
     if(empty()) {
         header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
         header_->unset_right_thread();
@@ -700,9 +707,10 @@ TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC insert(T&& value) {
     return insert(std::forward<T>(value), header_->right);
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename T, typename>
-TRBT_ITER_TYPE TRBT_MEM_SPEC insert(const_iterator hint, T&& value) {
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::insert(const_iterator hint, T&& value) {
     if(empty()) {
         header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
         header_->unset_right_thread();
@@ -714,16 +722,17 @@ TRBT_ITER_TYPE TRBT_MEM_SPEC insert(const_iterator hint, T&& value) {
     return insert(hint, std::forward<T>(value), header_->right);
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename InputIt, typename>
-void TRBT_MEM_SPEC insert(InputIt first, InputIt last) {
+void red_black_tree<Value, Compare, Allocator, Void>::insert(InputIt first, InputIt last) {
     while(first != last)
         insert(*first++);
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename... Args>
-TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC emplace(Args&&... args) {
+std::pair<typename red_black_tree<Value, Compare, Allocator, Void>::iterator, bool> 
+red_black_tree<Value, Compare, Allocator, Void>::emplace(Args&&... args) {
     if(empty()) {
         header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, 0x3);
         header_->unset_right_thread();
@@ -734,9 +743,10 @@ TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC emplace(Args&&... args) {
     return emplace(header_->right, std::forward<Args>(args)...);
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename... Args>
-TRBT_ITER_TYPE TRBT_MEM_SPEC emplace_hint(iterator, Args&&... args) {
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::emplace_hint(const_iterator, Args&&... args) {
     if(empty()) {
         header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, 0x3);
         header_->unset_right_thread();
@@ -747,22 +757,17 @@ TRBT_ITER_TYPE TRBT_MEM_SPEC emplace_hint(iterator, Args&&... args) {
     return emplace_hint(header_->right, std::forward<Args>(args)...);
 }
 
-TRBT_TYPE_LIST
-template <typename... Args>
-TRBT_ITER_TYPE TRBT_MEM_SPEC emplace_hint(const_iterator, Args&&... args) {
-    return emplace_hint(cend(), std::forward<Args>(args)...);
-}
-
-TRBT_TYPE_LIST
-TRBT_SIZE_TYPE TRBT_MEM_SPEC erase(value_type const& value) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::size_type
+red_black_tree<Value, Compare, Allocator, Void>::erase(value_type const& value) {
     if(empty())
         return 0u;
     
     return erase(value, header_->right);
 }
 
-TRBT_TYPE_LIST
-bool TRBT_MEM_SPEC contains(value_type const& value) const  {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+bool red_black_tree<Value, Compare, Allocator, Void>::contains(value_type const& value) const  {
     if(empty())
         return false;
 
@@ -788,57 +793,64 @@ bool TRBT_MEM_SPEC contains(value_type const& value) const  {
     return true;
 } 
 
-TRBT_TYPE_LIST
-TRBT_SIZE_TYPE TRBT_MEM_SPEC count(value_type const& value) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::size_type
+red_black_tree<Value, Compare, Allocator, Void>::count(value_type const& value) const {
     return static_cast<size_type>(contains(value));
 }
 
-TRBT_TYPE_LIST
-TRBT_ITER_TYPE TRBT_MEM_SPEC find(value_type const& value) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::find(value_type const& value) {
     if(empty())
         return end();
     
     return iterator{this, find(value, header_->right)};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_ITER_TYPE TRBT_MEM_SPEC find(value_type const& value) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::find(value_type const& value) const {
     if(empty())
         return cend();
     
     return const_iterator{this, find(value, header_->right)};
 }
 
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
                                                         std::is_nothrow_swappable<Compare>::value) {
     std::swap(header_, other.header_);
     std::swap(size_, other.size_);
 }
 
-TRBT_TYPE_LIST
-TRBT_ITER_TYPE TRBT_MEM_SPEC lower_bound(value_type const& value) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::lower_bound(value_type const& value) {
     return iterator{this, lower_bound(value, header_->right)};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_ITER_TYPE TRBT_MEM_SPEC lower_bound(value_type const& value) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::lower_bound(value_type const& value) const {
     return const_iterator{this, lower_bound(value, header_->right)};
 }
 
-TRBT_TYPE_LIST
-TRBT_ITER_TYPE TRBT_MEM_SPEC upper_bound(value_type const& value) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::upper_bound(value_type const& value) {
     return iterator{this, upper_bound(value, header_->right)};
 }
 
-TRBT_TYPE_LIST 
-TRBT_CONST_ITER_TYPE TRBT_MEM_SPEC upper_bound(value_type const& value) const {
+template <typename Value, typename Compare, typename Allocator, typename Void> 
+typename red_black_tree<Value, Compare, Allocator, Void>::const_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::upper_bound(value_type const& value) const {
     return const_iterator{this, upper_bound(value, header_->right)};
 }
 
 #ifdef TRBT_DEBUG
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC assert_properties() const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::assert_properties() const {
     if(!empty()) {
         if(header_->right->color != Color::Black)
             throw color_violation_exception{"Root is red\n"};
@@ -848,63 +860,75 @@ void TRBT_MEM_SPEC assert_properties() const {
 }
 #endif
 
-TRBT_TYPE_LIST
-TRBT_ITER_TYPE TRBT_MEM_SPEC begin() noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::begin() noexcept {
     return iterator{this, min_node()};
 }
 
-TRBT_TYPE_LIST
-TRBT_ITER_TYPE TRBT_MEM_SPEC end() noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::end() noexcept {
     return iterator{this};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_ITER_TYPE TRBT_MEM_SPEC begin() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::begin() const noexcept {
     return const_iterator{this, min_node()};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_ITER_TYPE TRBT_MEM_SPEC end() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::end() const noexcept {
     return const_iterator{this};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_ITER_TYPE TRBT_MEM_SPEC cbegin() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::cbegin() const noexcept {
     return const_iterator{this, min_node()};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_ITER_TYPE TRBT_MEM_SPEC cend() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::cend() const noexcept {
     return const_iterator{this};
 }
     
-TRBT_TYPE_LIST
-TRBT_REVERSE_ITER_TYPE TRBT_MEM_SPEC rbegin() noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::reverse_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::rbegin() noexcept {
     return reverse_iterator{this, max_node()};
 }
 
-TRBT_TYPE_LIST
-TRBT_REVERSE_ITER_TYPE TRBT_MEM_SPEC rend() noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::reverse_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::rend() noexcept {
     return reverse_iterator{this};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_REVERSE_ITER_TYPE TRBT_MEM_SPEC rbegin() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_reverse_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::rbegin() const noexcept {
     return const_reverse_iterator{this, max_node()};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_REVERSE_ITER_TYPE TRBT_MEM_SPEC rend() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_reverse_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::rend() const noexcept {
     return const_reverse_iterator{this};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_REVERSE_ITER_TYPE TRBT_MEM_SPEC crbegin() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_reverse_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::crbegin() const noexcept {
     return const_reverse_iterator{this, max_node()};
 }
 
-TRBT_TYPE_LIST
-TRBT_CONST_REVERSE_ITER_TYPE TRBT_MEM_SPEC crend() const noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::const_reverse_iterator 
+red_black_tree<Value, Compare, Allocator, Void>::crend() const noexcept {
     return const_reverse_iterator{this};
 }
 
@@ -973,29 +997,30 @@ void swap(red_black_tree<Val_, Comp_, Alloc_>& left, red_black_tree<Val_, Comp_,
 }
 
 #ifdef TRBT_DEBUG
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC print(node_type* t, unsigned indentation) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::print(node_type* t, unsigned indentation) const {
+    if(t->has_right_child())
+        print(t->right, indentation + 2);
+
     std::cout << std::setw(indentation) << "" << t->value << "\n";
-    indentation += 2;
 
     if(t->has_left_child())
-        print(t->left, indentation);
-    if(t->has_right_child())
-        print(t->right, indentation);
+        print(t->left, indentation + 2);
 }
 #endif
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename T>
-TRBT_NODE_PTR TRBT_MEM_SPEC allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread) {
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread) {
     node_type* node = allocator_.allocate(1u);
     node = new (node) node_type{std::forward<T>(value), lc, rc, col, thread};
 
     return node;
 }
 
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC init(unsigned char thread) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::init(unsigned char thread) {
     header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, thread);
     header_->left = header_;
 
@@ -1008,8 +1033,8 @@ void TRBT_MEM_SPEC init(unsigned char thread) {
     null_node_->left = null_node_->right = null_node_;
 }
 
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC clear(node_type* current) noexcept {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::clear(node_type* current) noexcept {
     if(current->has_left_child())
         clear(current->left);
     if(current->has_right_child())
@@ -1018,8 +1043,9 @@ void TRBT_MEM_SPEC clear(node_type* current) noexcept {
     allocator_.deallocate(current, 1u);
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC clone(node_type* pred, node_type* succ, node_type* other) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type* 
+red_black_tree<Value, Compare, Allocator, Void>::clone(node_type* pred, node_type* succ, node_type* other) {
     node_type* node = allocate(other->value, pred, succ, other->color, other->thread);
 
     if(other->has_left_child())
@@ -1030,8 +1056,9 @@ TRBT_NODE_PTR TRBT_MEM_SPEC clone(node_type* pred, node_type* succ, node_type* o
     return node;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC find(value_type const& value, node_type* current) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::find(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value)) {
             if(current->has_left_child())
@@ -1050,52 +1077,60 @@ TRBT_NODE_PTR TRBT_MEM_SPEC find(value_type const& value, node_type* current) co
     return current;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC link(node_type* node, Direction dir) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::link(node_type* node, Direction dir) const {
     if(dir == Direction::Right)
         return node->has_right_child() ? node->right : null_node_;
     
     return node->has_left_child() ? node->left : null_node_;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC min_node() const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::min_node() const {
     return min_node(header_->right);
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC max_node() const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::max_node() const {
     return max_node(header_->right);
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC min_node(node_type* root) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::min_node(node_type* root) {
     while(root->has_left_child())
         root = root->left;
 
     return root;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC max_node(node_type* root) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::max_node(node_type* root) {
     while(root->has_right_child())
         root = root->right;
 
     return root;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC successor(node_type* node) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::successor(node_type* node) {
     return node->has_right_child() ? min_node(node->right) : node->right;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC predecessor(node_type* node) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::predecessor(node_type* node) {
     return node->has_left_child() ? max_node(node->left) : node->left;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC left_rotate(node_type* root, node_type* parent) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::left_rotate(node_type* root, node_type* parent) {
     node_type* new_root = root->right;
 
     if(new_root->has_left_child())
@@ -1120,8 +1155,9 @@ TRBT_NODE_PTR TRBT_MEM_SPEC left_rotate(node_type* root, node_type* parent) {
     return new_root;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC right_rotate(node_type* root, node_type* parent) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::right_rotate(node_type* root, node_type* parent) {
     node_type* new_root = root->left;
 
     if(new_root->has_right_child())
@@ -1146,32 +1182,36 @@ TRBT_NODE_PTR TRBT_MEM_SPEC right_rotate(node_type* root, node_type* parent) {
     return new_root;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC left_right_rotate(node_type* root, node_type* parent) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::left_right_rotate(node_type* root, node_type* parent) {
     left_rotate(root->left, root);
     return right_rotate(root, parent);
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC right_left_rotate(node_type* root, node_type* parent) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::right_left_rotate(node_type* root, node_type* parent) {
     right_rotate(root->right, root);
     return left_rotate(root, parent);
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC left_left_rotate(node_type* root, node_type* parent) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::left_left_rotate(node_type* root, node_type* parent) {
     right_rotate(root->left, root);
     return right_rotate(root, parent);
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC right_right_rotate(node_type* root, node_type* parent) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::right_right_rotate(node_type* root, node_type* parent) {
     left_rotate(root->right, root);
     return left_rotate(root, parent);
 }
 
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC move_red_up(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::balance_before_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
     current->color = Color::Red;
 
     if(current->has_left_child() && current->has_right_child())
@@ -1203,8 +1243,8 @@ void TRBT_MEM_SPEC move_red_up(node_type* current, node_type* parent, node_type*
     }
 }
 
-TRBT_TYPE_LIST
-void TRBT_MEM_SPEC move_red_down(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+void red_black_tree<Value, Compare, Allocator, Void>::balance_before_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
     /* Node in opposite direciton is red, current and link(current, dir) are black. 
      * rotate red node into the path */
     if(link(current, !dir)->color == Color::Red) {
@@ -1250,8 +1290,9 @@ void TRBT_MEM_SPEC move_red_down(Direction dir, node_type* current, node_type*& 
     null_node_->color = Color::Black;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
     /* Unlinking a leaf */
     if(internal->is_leaf()) {
         if(internal_parent->left == internal) {
@@ -1318,9 +1359,10 @@ TRBT_NODE_PTR TRBT_MEM_SPEC unlink_node(node_type* internal, node_type* internal
     return internal;
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename T>
-TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC insert(T&& value, node_type* current) {
+std::pair<typename red_black_tree<Value, Compare, Allocator, Void>::iterator, bool> 
+red_black_tree<Value, Compare, Allocator, Void>::insert(T&& value, node_type* current) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -1328,7 +1370,7 @@ TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC insert(T&& value, node_type* current) {
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -1366,7 +1408,7 @@ TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC insert(T&& value, node_type* current) {
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -1375,9 +1417,10 @@ TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC insert(T&& value, node_type* current) {
     return {iterator{this, current}, true};
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename T>
-TRBT_ITER_TYPE TRBT_MEM_SPEC insert(const_iterator, T&& value, node_type* current) {
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::insert(const_iterator, T&& value, node_type* current) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -1385,7 +1428,7 @@ TRBT_ITER_TYPE TRBT_MEM_SPEC insert(const_iterator, T&& value, node_type* curren
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -1423,7 +1466,7 @@ TRBT_ITER_TYPE TRBT_MEM_SPEC insert(const_iterator, T&& value, node_type* curren
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -1432,8 +1475,8 @@ TRBT_ITER_TYPE TRBT_MEM_SPEC insert(const_iterator, T&& value, node_type* curren
     return iterator{this, current};
 }
 
-TRBT_TYPE_LIST
-bool TRBT_MEM_SPEC insert(node_type* current, node_type* new_node) {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+bool red_black_tree<Value, Compare, Allocator, Void>::insert(node_type* current, node_type* new_node) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -1441,7 +1484,7 @@ bool TRBT_MEM_SPEC insert(node_type* current, node_type* new_node) {
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -1487,7 +1530,7 @@ bool TRBT_MEM_SPEC insert(node_type* current, node_type* new_node) {
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -1496,9 +1539,10 @@ bool TRBT_MEM_SPEC insert(node_type* current, node_type* new_node) {
     return true;
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename... Args>
-TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC emplace(node_type* current, Args&&... args) {
+std::pair<typename red_black_tree<Value, Compare, Allocator, Void>::iterator, bool> 
+red_black_tree<Value, Compare, Allocator, Void>::emplace(node_type* current, Args&&... args) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -1507,7 +1551,7 @@ TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC emplace(node_type* current, Args&&... args
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -1549,7 +1593,7 @@ TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC emplace(node_type* current, Args&&... args
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -1558,18 +1602,19 @@ TRBT_INSERT_RETURN_PAIR TRBT_MEM_SPEC emplace(node_type* current, Args&&... args
     return {iterator{this, current}, true};
 }
 
-TRBT_TYPE_LIST
+template <typename Value, typename Compare, typename Allocator, typename Void>
 template <typename... Args>
-TRBT_ITER_TYPE TRBT_MEM_SPEC emplace_hint(node_type* current, Args&&... args) {
-    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
-
-    Direction dir;
+typename red_black_tree<Value, Compare, Allocator, Void>::iterator 
+red_black_tree<Value, Compare, Allocator, Void>::emplace_hint(node_type* current, Args&&... args) {
     node_type* new_node = allocate(value_type{std::forward<Args>(args)...}, nullptr, nullptr, Color::Red, 0x3);
+
+    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+    Direction dir;
 
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -1611,7 +1656,8 @@ TRBT_ITER_TYPE TRBT_MEM_SPEC emplace_hint(node_type* current, Args&&... args) {
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -1620,8 +1666,10 @@ TRBT_ITER_TYPE TRBT_MEM_SPEC emplace_hint(node_type* current, Args&&... args) {
     return iterator{this, current};
 }
 
-TRBT_TYPE_LIST
-TRBT_SIZE_TYPE TRBT_MEM_SPEC erase(value_type const& value, node_type* current) {
+
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::size_type
+red_black_tree<Value, Compare, Allocator, Void>::erase(value_type const& value, node_type* current) {
     node_type *parent = header_, *grandparent = null_node_, *sibling = null_node_, *found = nullptr, *found_parent = nullptr;
     
     Direction dir;
@@ -1631,7 +1679,7 @@ TRBT_SIZE_TYPE TRBT_MEM_SPEC erase(value_type const& value, node_type* current) 
         
         /* Ensure node to remove is red */
         if(current->color == Color::Black && link(current, dir)->color == Color::Black) {
-            move_red_down(dir, current, parent, grandparent, sibling);
+            balance_before_remove(dir, current, parent, grandparent, sibling);
 
             /* If found is either the current or parent, rotations during recoloring may introduce
              * a node between found_parent and found. If this happens, move found_parent down one step */
@@ -1668,8 +1716,9 @@ TRBT_SIZE_TYPE TRBT_MEM_SPEC erase(value_type const& value, node_type* current) 
     return num_deleted;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC lower_bound(value_type const& value, node_type* current) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::lower_bound(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value)) {
             if(current == header_)
@@ -1692,8 +1741,9 @@ TRBT_NODE_PTR TRBT_MEM_SPEC lower_bound(value_type const& value, node_type* curr
     return header_;
 }
 
-TRBT_TYPE_LIST
-TRBT_NODE_PTR TRBT_MEM_SPEC upper_bound(value_type const& value, node_type* current) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+typename red_black_tree<Value, Compare, Allocator, Void>::node_type*
+red_black_tree<Value, Compare, Allocator, Void>::upper_bound(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value)) {
             if(current == header_)
@@ -1719,8 +1769,8 @@ TRBT_NODE_PTR TRBT_MEM_SPEC upper_bound(value_type const& value, node_type* curr
 
             
 #ifdef TRBT_DEBUG
-TRBT_TYPE_LIST
-int TRBT_MEM_SPEC assert_properties(node_type* t) const {
+template <typename Value, typename Compare, typename Allocator, typename Void>
+int red_black_tree<Value, Compare, Allocator, Void>::assert_properties(node_type* t) const {
     node_type *lh = link(t, Direction::Left), *rh = link(t, Direction::Right);
     
     if(t->color == Color::Red) {
@@ -1760,7 +1810,7 @@ template <typename Pair, typename Compare, typename Allocator>
 class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
     static_assert(impl::is_comparable_v<impl::compare_type_t<impl::remove_cvref_t<Pair>>, Compare>, "Key type is not comparable");
 
-    template <typename, typename, typename>
+    template <typename, typename, typename, typename>
     friend class impl::iterator_base;
 
     using Key       = typename Pair::first_type;
@@ -1830,8 +1880,6 @@ class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
         template <typename... Args>
         std::pair<iterator, bool> emplace(Args&&... args);
 
-        template <typename... Args>
-        iterator emplace_hint(iterator, Args&&... args);
         template <typename... Args>
         iterator emplace_hint(const_iterator, Args&&... args);
 
@@ -1931,8 +1979,8 @@ class red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>> {
         static node_type* left_left_rotate(node_type* root, node_type* parent);
         static node_type* right_right_rotate(node_type* root, node_type* parent);
         
-        void move_red_up(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
-        void move_red_down(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
+        void balance_before_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
+        void balance_before_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
 
         node_type* unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent);
 
@@ -1976,86 +2024,90 @@ red_black_tree(Pair<Key, Mapped>...)
     -> red_black_tree<std::pair<Key const, std::common_type_t<Mapped...>>, Compare, Allocator>;
 
 /* Map members */
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_MEM_SPEC red_black_tree() {
+template <typename Pair, typename Compare, typename Allocator>
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::red_black_tree() {
     init(0x3);
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename T, typename>
-TRBT_MAP_MEM_SPEC red_black_tree(T&& value) {
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::red_black_tree(T&& value) {
     init(0x2);
     header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename... Args, typename>
-TRBT_MAP_MEM_SPEC red_black_tree(Args&&... values) {
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::red_black_tree(Args&&... values) {
     init(0x3);
     (insert(std::forward<Args>(values)), ...);
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename InputIt, typename>
-TRBT_MAP_MEM_SPEC red_black_tree(InputIt first, InputIt last) {
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::red_black_tree(InputIt first, InputIt last) {
     init(0x3);
     insert(first, last);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_MEM_SPEC red_black_tree(red_black_tree const& other) {
+template <typename Pair, typename Compare, typename Allocator>
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::red_black_tree(red_black_tree const& other) {
     init(other.header_->thread);
     size_ = other.size_;
     if(!other.header_->is_leaf())
         header_->right = clone(header_, header_, other.header_->right);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_MEM_SPEC red_black_tree(red_black_tree&& other) : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
+template <typename Pair, typename Compare, typename Allocator>
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::red_black_tree(red_black_tree&& other) : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
     other.init(0x3);
     other.size_ = 0u;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_MEM_SPEC ~red_black_tree() {
+template <typename Pair, typename Compare, typename Allocator>
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::~red_black_tree() {
     clear();
     allocator_.deallocate(header_, 1u);
     allocator_.deallocate(null_node_, 1u);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_RED_BLACK_TREE_REF TRBT_MAP_MEM_SPEC operator=(red_black_tree const& other) & {
+template <typename Pair, typename Compare, typename Allocator>
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>& 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::operator=(red_black_tree const& other) & {
     auto cpy{other};
     std::swap(header_, cpy.header_);
     std::swap(size_, cpy.size_);
     return *this;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_RED_BLACK_TREE_REF TRBT_MAP_MEM_SPEC operator=(red_black_tree&& other) & {
+template <typename Pair, typename Compare, typename Allocator>
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>& 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::operator=(red_black_tree&& other) & {
     init(0x3);
     std::swap(header_, other.header_);
     std::swap(size_, other.size_);
     return *this;
 }
 
-TRBT_MAP_TYPE_LIST
-bool TRBT_MAP_MEM_SPEC empty() const {
+template <typename Pair, typename Compare, typename Allocator>
+bool red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::empty() const {
     return header_->thread & 0x1;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC size() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::size_type 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::size() const noexcept {
     return size_;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC max_size() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::size_type 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::max_size() const noexcept {
     return std::allocator_traits<Alloc>::max_size(allocator_);
 }
 
-TRBT_MAP_TYPE_LIST
-void TRBT_MAP_MEM_SPEC clear() noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::clear() noexcept {
     if(!empty()) {
         clear(header_->right);
         
@@ -2065,14 +2117,15 @@ void TRBT_MAP_MEM_SPEC clear() noexcept {
     }
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_ALLOCATOR_TYPE TRBT_MAP_MEM_SPEC get_allocator() const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::allocator_type 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::get_allocator() const {
     return allocator_;
 }
 
 #ifdef TRBT_DEBUG
-TRBT_MAP_TYPE_LIST
-void TRBT_MAP_MEM_SPEC print() const {
+template <typename Pair, typename Compare, typename Allocator>
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::print() const {
     if(empty())
         std::cout << "Tree is empty\n";
     else
@@ -2080,9 +2133,10 @@ void TRBT_MAP_MEM_SPEC print() const {
 }
 #endif
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename T, typename>
-TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC insert(T&& value) {
+std::pair<typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator, bool> 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::insert(T&& value) {
     if(empty()) {
         header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
         header_->unset_right_thread();
@@ -2094,9 +2148,10 @@ TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC insert(T&& value) {
     return insert(std::forward<T>(value), header_->right);
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename T, typename>
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC insert(const_iterator hint, T&& value) {
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::insert(const_iterator hint, T&& value) {
     if(empty()) {
         header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
         header_->unset_right_thread();
@@ -2108,16 +2163,17 @@ TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC insert(const_iterator hint, T&& value) {
     return insert(hint, std::forward<T>(value), header_->right);
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename InputIt, typename>
-void TRBT_MAP_MEM_SPEC insert(InputIt first, InputIt last) {
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::insert(InputIt first, InputIt last) {
     while(first != last)
         insert(*first++);
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename... Args>
-TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC emplace(Args&&... args) {
+std::pair<typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator, bool> 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::emplace(Args&&... args) {
     if(empty()) {
         header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, 0x3);
         header_->unset_right_thread();
@@ -2128,35 +2184,24 @@ TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC emplace(Args&&... args) {
     return emplace(header_->right, std::forward<Args>(args)...);
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename... Args>
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(iterator, Args&&... args) {
-    if(empty()) {
-        header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, 0x3);
-        header_->unset_right_thread();
-        
-        size_++;
-        return iterator{this, header_->right};
-    }
-    return emplace_hint(header_->right, std::forward<Args>(args)...);
-}
-
-TRBT_MAP_TYPE_LIST
-template <typename... Args>
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(const_iterator, Args&&... args) {
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::emplace_hint(const_iterator, Args&&... args) {
     return emplace_hint(cend(), std::forward<Args>(args)...);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC erase(value_type const& value) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::size_type 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::erase(value_type const& value) {
     if(empty())
         return 0u;
     
     return erase(value, header_->right);
 }
 
-TRBT_MAP_TYPE_LIST
-bool TRBT_MAP_MEM_SPEC contains(value_type const& value) const  {
+template <typename Pair, typename Compare, typename Allocator>
+bool red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::contains(value_type const& value) const  {
     if(empty())
         return false;
 
@@ -2182,29 +2227,33 @@ bool TRBT_MAP_MEM_SPEC contains(value_type const& value) const  {
     return true;
 } 
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC count(value_type const& value) const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::size_type 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::count(value_type const& value) const {
     return static_cast<size_type>(contains(value));
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC find(key_type const& value) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::find(key_type const& value) {
     if(empty())
         return end();
     
     return iterator{this, find(value, header_->right)};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC find(key_type const& value) const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::find(key_type const& value) const {
     if(empty())
         return cend();
     
     return const_iterator{this, find(value, header_->right)};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type const& key) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::mapped_type& 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::operator[](key_type const& key) {
     if(empty())
         return (*insert(std::pair{key, mapped_type{}}, header_->right).first).second;
     
@@ -2215,7 +2264,7 @@ TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type const& key) {
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -2246,7 +2295,7 @@ TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type const& key) {
         current = link(current, dir);
     }
 
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -2255,8 +2304,9 @@ TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type const& key) {
     return (*insert(std::pair{key, mapped_type{}}, current).first).second;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type&& key) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::mapped_type& 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::operator[](key_type&& key) {
     if(empty())
         return (*insert(std::pair{std::move(key), mapped_type{}}, header_->right).first).second;
     
@@ -2267,7 +2317,7 @@ TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type&& key) {
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -2298,7 +2348,7 @@ TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type&& key) {
         current = link(current, dir);
     }
 
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -2308,8 +2358,9 @@ TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC operator[](key_type&& key) {
 
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC at(key_type const& key) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::mapped_type& 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::at(key_type const& key) {
     if(empty())
         throw std::out_of_range{"Specified key not in tree"};
 
@@ -2335,8 +2386,9 @@ TRBT_MAP_MAPPED_TYPE_REF TRBT_MAP_MEM_SPEC at(key_type const& key) {
     throw std::out_of_range{"Specified key not in tree"};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_MAPPED_TYPE_CONST_REF TRBT_MAP_MEM_SPEC at(key_type const& key) const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::mapped_type const& 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::at(key_type const& key) const {
     if(empty())
         throw std::out_of_range{"Specified key not in tree"};
 
@@ -2362,90 +2414,107 @@ TRBT_MAP_MAPPED_TYPE_CONST_REF TRBT_MAP_MEM_SPEC at(key_type const& key) const {
     throw std::out_of_range{"Specified key not in tree"};
 }
 
-TRBT_MAP_TYPE_LIST
-void TRBT_MAP_MEM_SPEC swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
-                                                        std::is_nothrow_swappable<Compare>::value) {
+template <typename Pair, typename Compare, typename Allocator>
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::
+    swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
+                                         std::is_nothrow_swappable<Compare>::value) {
     std::swap(header_, other.header_);
     std::swap(size_, other.size_);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC lower_bound(value_type const& value) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::lower_bound(value_type const& value) {
     return iterator{this, lower_bound(value, header_->right)};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC lower_bound(value_type const& value) const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::lower_bound(value_type const& value) const {
     return const_iterator{this, lower_bound(value, header_->right)};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC upper_bound(value_type const& value) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::upper_bound(value_type const& value) {
     return iterator{this, upper_bound(value, header_->right)};
 }
 
-TRBT_MAP_TYPE_LIST 
-TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC upper_bound(value_type const& value) const {
+template <typename Pair, typename Compare, typename Allocator> 
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::upper_bound(value_type const& value) const {
     return const_iterator{this, upper_bound(value, header_->right)};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC begin() noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::begin() noexcept {
     return iterator{this, min_node()};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC end() noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::end() noexcept {
     return iterator{this};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC begin() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::begin() const noexcept {
     return const_iterator{this, min_node()};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC end() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::end() const noexcept {
     return const_iterator{this};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC cbegin() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::cbegin() const noexcept {
     return const_iterator{this, min_node()};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_ITER_TYPE TRBT_MAP_MEM_SPEC cend() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::cend() const noexcept {
     return const_iterator{this};
 }
     
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC rbegin() noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::reverse_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::rbegin() noexcept {
     return reverse_iterator{this, max_node()};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC rend() noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::reverse_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::rend() noexcept {
     return reverse_iterator{this};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC rbegin() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_reverse_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::rbegin() const noexcept {
     return const_reverse_iterator{this, max_node()};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC rend() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_reverse_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::rend() const noexcept {
     return const_reverse_iterator{this};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC crbegin() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_reverse_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::crbegin() const noexcept {
     return const_reverse_iterator{this, max_node()};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_CONST_REVERSE_ITER_TYPE TRBT_MAP_MEM_SPEC crend() const noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::const_reverse_iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::crend() const noexcept {
     return const_reverse_iterator{this};
 }
 
@@ -2528,8 +2597,8 @@ red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_>& right) noexcept(noexcep
 }
 
 #ifdef TRBT_DEBUG
-TRBT_MAP_TYPE_LIST
-void TRBT_MAP_MEM_SPEC print(node_type* t, unsigned indentation) const {
+template <typename Pair, typename Compare, typename Allocator>
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::print(node_type* t, unsigned indentation) const {
     std::cout << std::setw(indentation) << "" << "{" << t->value.first << ", " << t->value.second << "}\n";
     indentation += 2;
 
@@ -2540,17 +2609,18 @@ void TRBT_MAP_MEM_SPEC print(node_type* t, unsigned indentation) const {
 }
 #endif
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename T>
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread) {
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread) {
     node_type* node = allocator_.allocate(1u);
     node = new (node) node_type{std::forward<T>(value), lc, rc, col, thread};
     
     return node;
 }
 
-TRBT_MAP_TYPE_LIST
-void TRBT_MAP_MEM_SPEC init(unsigned char thread) {
+template <typename Pair, typename Compare, typename Allocator>
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::init(unsigned char thread) {
     header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, thread);
     header_->left = header_;
 
@@ -2563,8 +2633,8 @@ void TRBT_MAP_MEM_SPEC init(unsigned char thread) {
     null_node_->left = null_node_->right = null_node_;
 }
 
-TRBT_MAP_TYPE_LIST
-void TRBT_MAP_MEM_SPEC clear(node_type* current) noexcept {
+template <typename Pair, typename Compare, typename Allocator>
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::clear(node_type* current) noexcept {
     if(current->has_left_child())
         clear(current->left);
     if(current->has_right_child())
@@ -2573,8 +2643,9 @@ void TRBT_MAP_MEM_SPEC clear(node_type* current) noexcept {
     allocator_.deallocate(current, 1u);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC clone(node_type* pred, node_type* succ, node_type* other) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::clone(node_type* pred, node_type* succ, node_type* other) {
     node_type* node = allocate(other->value, pred, succ, other->color, other->thread);
 
     if(other->has_left_child())
@@ -2585,8 +2656,9 @@ TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC clone(node_type* pred, node_type* succ, node
     return node;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC find(key_type const& value, node_type* current) const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::find(key_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value.first)) {
             if(current->has_left_child())
@@ -2605,52 +2677,60 @@ TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC find(key_type const& value, node_type* curre
     return current;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC link(node_type* node, Direction dir) const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::link(node_type* node, Direction dir) const {
     if(dir == Direction::Right)
         return node->has_right_child() ? node->right : null_node_;
     
     return node->has_left_child() ? node->left : null_node_;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC min_node() const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::min_node() const {
     return min_node(header_->right);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC max_node() const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::max_node() const {
     return max_node(header_->right);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC min_node(node_type* root) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::min_node(node_type* root) {
     while(root->has_left_child())
         root = root->left;
 
     return root;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC max_node(node_type* root) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::max_node(node_type* root) {
     while(root->has_right_child())
         root = root->right;
 
     return root;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC successor(node_type* node) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::successor(node_type* node) {
     return node->has_right_child() ? min_node(node->right) : node->right;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC predecessor(node_type* node) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::predecessor(node_type* node) {
     return node->has_left_child() ? max_node(node->left) : node->left;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC left_rotate(node_type* root, node_type* parent) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::left_rotate(node_type* root, node_type* parent) {
     node_type* new_root = root->right;
 
     if(new_root->has_left_child())
@@ -2675,8 +2755,9 @@ TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC left_rotate(node_type* root, node_type* pare
     return new_root;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC right_rotate(node_type* root, node_type* parent) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::right_rotate(node_type* root, node_type* parent) {
     node_type* new_root = root->left;
 
     if(new_root->has_right_child())
@@ -2701,32 +2782,36 @@ TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC right_rotate(node_type* root, node_type* par
     return new_root;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC left_right_rotate(node_type* root, node_type* parent) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::left_right_rotate(node_type* root, node_type* parent) {
     left_rotate(root->left, root);
     return right_rotate(root, parent);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC right_left_rotate(node_type* root, node_type* parent) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::right_left_rotate(node_type* root, node_type* parent) {
     right_rotate(root->right, root);
     return left_rotate(root, parent);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC left_left_rotate(node_type* root, node_type* parent) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::left_left_rotate(node_type* root, node_type* parent) {
     right_rotate(root->left, root);
     return right_rotate(root, parent);
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC right_right_rotate(node_type* root, node_type* parent) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::right_right_rotate(node_type* root, node_type* parent) {
     left_rotate(root->right, root);
     return left_rotate(root, parent);
 }
 
-TRBT_MAP_TYPE_LIST
-void TRBT_MAP_MEM_SPEC move_red_up(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
+template <typename Pair, typename Compare, typename Allocator>
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::balance_before_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
     current->color = Color::Red;
 
     if(current->has_left_child() && current->has_right_child())
@@ -2758,8 +2843,8 @@ void TRBT_MAP_MEM_SPEC move_red_up(node_type* current, node_type* parent, node_t
     }
 }
 
-TRBT_MAP_TYPE_LIST
-void TRBT_MAP_MEM_SPEC move_red_down(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
+template <typename Pair, typename Compare, typename Allocator>
+void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::balance_before_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
     /* Node in opposite direciton is red, current and link(current, dir) are black. 
      * rotate red node into the path */
     if(link(current, !dir)->color == Color::Red) {
@@ -2805,8 +2890,10 @@ void TRBT_MAP_MEM_SPEC move_red_down(Direction dir, node_type* current, node_typ
     null_node_->color = Color::Black;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::
+    unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
     /* Unlinking a leaf */
     if(internal->is_leaf()) {
         if(internal_parent->left == internal) {
@@ -2873,9 +2960,10 @@ TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC unlink_node(node_type* internal, node_type* 
     return internal;
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename T>
-TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC insert(T&& value, node_type* current) {
+std::pair<typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator, bool> 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::insert(T&& value, node_type* current) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -2883,7 +2971,7 @@ TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC insert(T&& value, node_type* curre
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -2921,7 +3009,7 @@ TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC insert(T&& value, node_type* curre
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -2930,9 +3018,10 @@ TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC insert(T&& value, node_type* curre
     return {iterator{this, current}, true};
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename T>
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC insert(const_iterator, T&& value, node_type* current) {
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::insert(const_iterator, T&& value, node_type* current) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -2940,7 +3029,7 @@ TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC insert(const_iterator, T&& value, node_type
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -2978,7 +3067,7 @@ TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC insert(const_iterator, T&& value, node_type
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -2987,8 +3076,8 @@ TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC insert(const_iterator, T&& value, node_type
     return iterator{this, current};
 }
 
-TRBT_MAP_TYPE_LIST
-bool TRBT_MAP_MEM_SPEC insert(node_type* current, node_type* new_node) {
+template <typename Pair, typename Compare, typename Allocator>
+bool red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::insert(node_type* current, node_type* new_node) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -2996,7 +3085,7 @@ bool TRBT_MAP_MEM_SPEC insert(node_type* current, node_type* new_node) {
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -3042,7 +3131,7 @@ bool TRBT_MAP_MEM_SPEC insert(node_type* current, node_type* new_node) {
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -3051,9 +3140,10 @@ bool TRBT_MAP_MEM_SPEC insert(node_type* current, node_type* new_node) {
     return true;
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename... Args>
-TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC emplace(node_type* current, Args&&... args) {
+std::pair<typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator, bool> 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::emplace(node_type* current, Args&&... args) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -3062,7 +3152,7 @@ TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC emplace(node_type* current, Args&&
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -3104,7 +3194,7 @@ TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC emplace(node_type* current, Args&&
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -3113,9 +3203,10 @@ TRBT_MAP_INSERT_RETURN_PAIR TRBT_MAP_MEM_SPEC emplace(node_type* current, Args&&
     return {iterator{this, current}, true};
 }
 
-TRBT_MAP_TYPE_LIST
+template <typename Pair, typename Compare, typename Allocator>
 template <typename... Args>
-TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(node_type* current, Args&&... args) {
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::iterator 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::emplace_hint(node_type* current, Args&&... args) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
 
     Direction dir;
@@ -3124,7 +3215,7 @@ TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(node_type* current, Args&&... 
     while(true) {
         /* Both current's left and right children are red (and non-threads), move red nodes upwards */
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            move_red_up(current, parent, grandparent, great_grandparent);
+            balance_before_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
@@ -3166,7 +3257,7 @@ TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(node_type* current, Args&&... 
         /* Move down */
         current = link(current, dir);
     }
-    move_red_up(current, parent, grandparent, great_grandparent);
+    balance_before_insert(current, parent, grandparent, great_grandparent);
 
     /* Ensure root is black */
     header_->right->color = Color::Black;
@@ -3175,8 +3266,9 @@ TRBT_MAP_ITER_TYPE TRBT_MAP_MEM_SPEC emplace_hint(node_type* current, Args&&... 
     return iterator{this, current};
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC erase(value_type const& value, node_type* current) {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::size_type 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::erase(value_type const& value, node_type* current) {
     node_type *parent = header_, *grandparent = null_node_, *sibling = null_node_, *found = nullptr, *found_parent = nullptr;
     
     Direction dir;
@@ -3186,7 +3278,7 @@ TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC erase(value_type const& value, node_type* c
         
         /* Ensure node to remove is red */
         if(current->color == Color::Black && link(current, dir)->color == Color::Black) {
-            move_red_down(dir, current, parent, grandparent, sibling);
+            balance_before_remove(dir, current, parent, grandparent, sibling);
 
             /* If found is either the current or parent, rotations during recoloring may introduce
              * a node between found_parent and found. If this happens, move found_parent down one step */
@@ -3223,8 +3315,9 @@ TRBT_MAP_SIZE_TYPE TRBT_MAP_MEM_SPEC erase(value_type const& value, node_type* c
     return num_deleted;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC lower_bound(value_type const& value, node_type* current) const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::lower_bound(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value.first, current->value.first)) {
             if(current == header_)
@@ -3247,8 +3340,9 @@ TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC lower_bound(value_type const& value, node_ty
     return header_;
 }
 
-TRBT_MAP_TYPE_LIST
-TRBT_MAP_NODE_PTR TRBT_MAP_MEM_SPEC upper_bound(value_type const& value, node_type* current) const {
+template <typename Pair, typename Compare, typename Allocator>
+typename red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::node_type* 
+red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::upper_bound(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value.first, current->value.first)) {
             if(current == header_)
@@ -3327,29 +3421,4 @@ namespace impl {
 
 } /* namespace trbt */
 
-#undef TRBT_TYPE_LIST
-#undef TRBT_MEM_SPEC
-#undef TRBT_NODE_PTR
-#undef TRBT_SIZE_TYPE
-#undef TRBT_ITER_TYPE
-#undef TRBT_CONST_ITER_TYPE
-#undef TRBT_REVERSE_ITER_TYPE
-#undef TRBT_CONST_REVERSE_ITER_TYPE
-#undef TRBT_INSERT_RETURN_TYPE
-#undef TRBT_RED_BLACK_TREE_REF
-#undef TRBT_ALLOCATOR_TYPE
-
-#undef TRBT_MAP_TYPE_LIST 
-#undef TRBT_MAP_MEM_SPEC 
-#undef TRBT_MAP_NODE_PTR
-#undef TRBT_MAP_SIZE_TYPE
-#undef TRBT_MAP_ITER_TYPE
-#undef TRBT_MAP_CONST_ITER_TYPE
-#undef TRBT_MAP_REVERSE_ITER_TYPE
-#undef TRBT_MAP_CONST_REVERSE_ITER_TYPE
-#undef TRBT_MAP_RED_BLACK_TREE_REF 
-#undef TRBT_MAP_ALLOCATOR_TYPE 
-#undef TRBT_MAP_INSERT_RETURN_PAIR 
-#undef TRBT_MAP_MAPPED_TYPE_REF 
-#undef TRBT_MAP_MAPPED_TYPE_CONST_REF 
 #endif
