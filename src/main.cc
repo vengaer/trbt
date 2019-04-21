@@ -10,4 +10,7 @@ int main() {
     t.print();
     t.assert_properties();
     //trbt::impl::debug::run_test();
+    auto it = std::begin(t);
+    typename decltype(t)::const_iterator it2{it};
 }
+

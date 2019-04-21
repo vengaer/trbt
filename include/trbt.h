@@ -263,23 +263,23 @@ namespace impl {
             explicit iterator_base(Container* cont) : parent_{cont}, current_{parent_->header_} { }
             iterator_base(Container* cont, node_type* t) : parent_{cont}, current_{t} { }
 
-            Derived& operator=(iterator_base const& rhs) & {
+            Derived& operator=(Derived const& rhs) & {
                 this->parent_ = rhs.parent_;
                 this->current_ = rhs.current_;
                 return static_cast<Derived&>(*this);
             }
         
-            friend void swap(iterator_base& left, iterator_base& right) noexcept {
+            friend void swap(Derived& left, Derived& right) noexcept {
                 auto temp = std::move(left);
                 left = std::move(right);
                 right = std::move(temp);
             }
 
-            friend bool operator==(iterator_base const& left, iterator_base const& right) {
+            friend bool operator==(Derived const& left, Derived const& right) {
                 return left.current_ == right.current_;
             }
 
-            friend bool operator!=(iterator_base const& left, iterator_base const& right) {
+            friend bool operator!=(Derived const& left, Derived const& right) {
                 return !(left == right);
             }
     
@@ -306,7 +306,7 @@ namespace impl {
                 return static_cast<Derived&>(*this);
             }
 
-            iterator_base operator--(int) {
+            Derived operator--(int) {
                 auto next = static_cast<Derived&>(*this);
                 --*this;
                 return next;
@@ -328,7 +328,7 @@ namespace impl {
                 return std::addressof(this->current_->value);
             }
 
-        private:
+        protected:
             Container* parent_;
             node_type* current_;
     };
@@ -337,15 +337,33 @@ namespace impl {
     class iterator_type : public iterator_base<iterator_type<Container, ReverseTag>, Container, non_const_tag, ReverseTag> { 
         using base = iterator_base<iterator_type<Container, ReverseTag>, Container, non_const_tag, ReverseTag>;
         public:
+            using value_type        = typename base::value_type;
+            using difference_type   = typename base::difference_type;
+            using iterator_category = typename base::iterator_category;
+            using reference         = typename base::reference;
+            using const_reference   = typename base::const_reference;
+            using pointer           = typename base::pointer;
+            using const_pointer     = typename base::const_pointer;
+
             using base::base;
+            iterator_type(iterator_type const& other) : base{other.parent_, other.current_} { }
     };
 
     template <typename Container, typename ReverseTag>
     class const_iterator_type : public iterator_base<const_iterator_type<Container const, ReverseTag>, Container const, const_tag, ReverseTag> {
         using base = iterator_base<const_iterator_type<Container const, ReverseTag>, Container const, const_tag, ReverseTag>;
         public: 
+            using value_type        = typename base::value_type;
+            using difference_type   = typename base::difference_type;
+            using iterator_category = typename base::iterator_category;
+            using reference         = typename base::reference;
+            using const_reference   = typename base::const_reference;
+            using pointer           = typename base::pointer;
+            using const_pointer     = typename base::const_pointer;
+
             using base::base;
     
+            const_iterator_type(const_iterator_type const& other) : base{other.parent_, other.current_} { }
             const_iterator_type(iterator_type<Container, ReverseTag> const& other) : base{other.parent_, other.current_} { }
 
             const_iterator_type& operator=(iterator_type<Container, ReverseTag> const& other) & {
@@ -2599,13 +2617,14 @@ red_black_tree<std::pair<Key_, Mapped_>, Comp_, Alloc_>& right) noexcept(noexcep
 #ifdef TRBT_DEBUG
 template <typename Pair, typename Compare, typename Allocator>
 void red_black_tree<Pair, Compare, Allocator, impl::enable_if_pair<Pair>>::print(node_type* t, unsigned indentation) const {
-    std::cout << std::setw(indentation) << "" << "{" << t->value.first << ", " << t->value.second << "}\n";
-    indentation += 2;
 
     if(t->has_left_child())
-        print(t->left, indentation);
+        print(t->left, indentation + 3);
+
+    std::cout << std::setw(indentation) << "" << "{" << t->value.first << ", " << t->value.second << "}\n";
+
     if(t->has_right_child())
-        print(t->right, indentation);
+        print(t->right, indentation + 3);
 }
 #endif
 
