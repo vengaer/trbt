@@ -487,7 +487,8 @@ template <typename Value,
           typename Allocator = std::allocator<impl::add_const_to_key_if_pair<impl::remove_cvref_t<Value>>>>
 class red_black_tree {
     static_assert(impl::is_comparable_v<impl::remove_cvref_t<Value>,
-                                        impl::key_compare_t<impl::remove_cvref_t<Value>, Compare>>, "Value type is not comparable");
+                                        impl::key_compare_t<impl::remove_cvref_t<Value>, Compare>>, 
+                                        "Value type is not comparable");
 
     template <typename, typename, typename, typename>
     friend class impl::iterator_base;
@@ -1767,6 +1768,7 @@ red_black_tree<Value, Compare, Allocator>::emplace(node_type* current, Args&&...
         else {
             /* Ensure root is black */
             header_->right->color = Color::Black;
+            allocator_.deallocate(new_node, 1u);
             return {iterator{this, current}, false};
         }
 
@@ -1830,6 +1832,7 @@ red_black_tree<Value, Compare, Allocator>::emplace_hint(node_type* current, Args
         else {
             /* Ensure root is black */
             header_->right->color = Color::Black;
+            allocator_.deallocate(new_node, 1u);
             return iterator{this, current};
         }
 

@@ -9,10 +9,10 @@ int main() {
         r.emplace(i,i);
 
     r.print();
-    t.emplace_hint(std::end(t), 10);
+    t.emplace_hint(std::end(t), 5);
     t.print();
     t.assert_properties();
-    //trbt::impl::debug::run_test();
+    trbt::impl::debug::run_test();
     //typename decltype(t)::value_compare a;
 }
 
