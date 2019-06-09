@@ -12,7 +12,7 @@ CXXFLAGS := $(CXXFLAGS) -std=c++17 -Wall -Wextra -pedantic -Weffc++ $(INC)
 $(BIN): $(OBJ)
 	$(CXX) -o $@ $^ $(CXXFLAGS)
 
-.PHONY: clean run clang gcc
+.PHONY: clean run 
 clean:
 	rm -f $(OBJ) $(BIN)
 
