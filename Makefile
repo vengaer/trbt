@@ -1,8 +1,8 @@
 CXX ?= g++
 
-SRC = $(wildcard src/*.cc)
+SRC = $(wildcard tests/*.cc)
 OBJ := $(addsuffix .o,$(basename $(SRC)))
-INC = -I src/ -I include/
+INC = -I include/
 BIN = trbt
 
 export CPPFLAGS

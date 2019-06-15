@@ -7,6 +7,7 @@
 #include <iterator>
 #include <memory>
 #include <stdexcept>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -21,8 +22,14 @@
 #endif
 
 namespace trbt {
+    template <typename, typename, typename>
+    class rbtree;
 
 namespace impl {
+    inline unsigned char constexpr RIGHT = 0x1;
+    inline unsigned char constexpr LEFT  = 0x2;
+    inline unsigned char constexpr LEAF  = 0x3;
+
     template <typename, typename, typename = void>
     struct is_comparable : std::false_type { };
 
@@ -198,6 +205,11 @@ namespace impl {
         }
     };
 
+    template <typename Compare, typename T, typename U>
+    bool equals(T const& left, U const& right) {
+        return !Compare{}(left, right) && !Compare{}(right, left);
+    }
+
     template <typename T, typename Compare>
     struct key_compare : type_is<Compare> { };
 
@@ -234,6 +246,17 @@ namespace impl {
     template <typename T>
     using add_const_to_key_if_pair_t = typename add_const_to_key_if_pair<T>::type;
 
+    template <std::size_t N, typename... Args>
+    decltype(auto) constexpr get(Args&&... args) {
+        return std::get<N>(std::forward_as_tuple(args...));
+    }
+
+    template <std::size_t N, typename... Args>
+    struct nth_type : type_is<decltype(get<N>(std::declval<Args>()...))> { };
+
+    template <std::size_t N, typename... Args>
+    using nth_type_t = typename nth_type<N, Args...>::type;
+
     struct const_tag { };
     struct reverse_tag { };
     struct non_const_tag { };
@@ -265,9 +288,17 @@ namespace impl {
 
     enum class Color { Red, Black };
     enum class Direction { Left, Right };
+    enum class ValueRelation { Less = -1, 
+                               Equal, 
+                               Larger };
 
     inline Direction operator!(Direction dir) {
         return static_cast<Direction>(!static_cast<std::underlying_type_t<Direction>>(dir));
+    }
+
+    inline Direction dir_from_value_rel(ValueRelation rel) {
+        return static_cast<Direction>(
+                    (static_cast<std::underlying_type_t<ValueRelation>>(rel) + 1) / 2);
     }
 
     template <typename Value>
@@ -282,31 +313,31 @@ namespace impl {
             : value{std::forward<T>(value)}, left{l}, right{r}, color{col}, thread{threaded} { }
 
         bool is_leaf() const {
-            return thread == (0x1 | 0x2);
+            return thread == (LEFT | RIGHT);
         }
     
         bool has_left_child() const {
-            return !(thread & 0x2);
+            return !(thread & LEFT);
         }
 
         bool has_right_child() const {
-            return !(thread & 0x1);
+            return !(thread & RIGHT);
         }
     
         void set_left_thread() {
-            thread |= 0x2;
+            thread |= LEFT;
         }
 
         void set_right_thread() {
-            thread |= 0x1;
+            thread |= RIGHT;
         }
 
         void unset_left_thread() {
-            thread &= ~0x2;
+            thread &= ~LEFT;
         }
 
         void unset_right_thread() {
-            thread &= ~0x1;
+            thread &= ~RIGHT;
         }
 
     };
@@ -328,7 +359,6 @@ namespace impl {
 
     } /* namespace debug */
     #endif
-
 
     template <typename Derived, typename Container, typename ConstTag, typename ReverseTag>
     class iterator_base {
@@ -430,6 +460,9 @@ namespace impl {
             Container* parent_;
             node_type* current_;
     };
+
+    template <typename, typename>
+    class const_iterator_type;
     
     template <typename Container, typename ReverseTag>
     class iterator_type : public iterator_base<iterator_type<Container, ReverseTag>, Container, non_const_tag, ReverseTag> { 
@@ -445,10 +478,18 @@ namespace impl {
 
             using base::base;
             iterator_type(iterator_type const& other) : base{other.parent_, other.current_} { }
+
+            operator const_iterator_type<Container, ReverseTag>() {
+                return const_iterator_type<Container, ReverseTag>{this->parent_, this->current_};
+            }
     };
 
     template <typename Container, typename ReverseTag>
     class const_iterator_type : public iterator_base<const_iterator_type<Container const, ReverseTag>, Container const, const_tag, ReverseTag> {
+
+        template <typename, typename, typename>
+        friend class trbt::rbtree;
+        
         using base = iterator_base<const_iterator_type<Container const, ReverseTag>, Container const, const_tag, ReverseTag>;
         public: 
             using value_type        = typename base::value_type;
@@ -485,7 +526,7 @@ namespace impl {
 template <typename Value, 
           typename Compare = std::less<Value>, 
           typename Allocator = std::allocator<impl::add_const_to_key_if_pair<impl::remove_cvref_t<Value>>>>
-class red_black_tree {
+class rbtree {
     static_assert(impl::is_comparable_v<impl::remove_cvref_t<Value>,
                                         impl::key_compare_t<impl::remove_cvref_t<Value>, Compare>>, 
                                         "Value type is not comparable");
@@ -495,8 +536,9 @@ class red_black_tree {
 
     using Alloc     = typename std::allocator_traits<Allocator>::template 
                                     rebind_alloc<impl::node<impl::value_type_t<impl::remove_cvref_t<Value>>>>;
-    using Color     = impl::Color;
-    using Direction = impl::Direction;
+    using Color         = impl::Color;
+    using Direction     = impl::Direction;
+    using ValueRelation = impl::ValueRelation;
 
     #ifdef TRBT_DEBUG
     using color_violation_exception        = impl::debug::color_violation_exception;
@@ -518,30 +560,30 @@ class red_black_tree {
         using pointer                = typename std::allocator_traits<Allocator>::pointer;
         using const_pointer          = typename std::allocator_traits<Allocator>::const_pointer;
         using node_type              = impl::node<value_type>;
-        using iterator               = impl::iterator<red_black_tree>;
-        using const_iterator         = impl::const_iterator<red_black_tree>;
-        using reverse_iterator       = impl::reverse_iterator<red_black_tree>;
-        using const_reverse_iterator = impl::const_reverse_iterator<red_black_tree>;
+        using iterator               = impl::iterator<rbtree>;
+        using const_iterator         = impl::const_iterator<rbtree>;
+        using reverse_iterator       = impl::reverse_iterator<rbtree>;
+        using const_reverse_iterator = impl::const_reverse_iterator<rbtree>;
 
-        red_black_tree();
+        rbtree();
 
-        template <typename T = value_type, typename = impl::disable_if_same_t<T, red_black_tree>>
-        red_black_tree(T&& value);
+        template <typename T = value_type, typename = impl::disable_if_same_t<T, rbtree>>
+        rbtree(T&& value);
 
         /* Value type will be smallest possible type that can store all types of the pack */
         template <typename... Args, typename = std::enable_if_t<(sizeof...(Args) > 1) && (std::is_convertible_v<Args, value_type> && ...)>>
-        red_black_tree(Args&&... values);
+        rbtree(Args&&... values);
         
         template <typename InputIt, typename = impl::enable_if_iterator_t<InputIt>>
-        red_black_tree(InputIt first, InputIt last);
+        rbtree(InputIt first, InputIt last);
 
-        red_black_tree(red_black_tree const& other);
-        red_black_tree(red_black_tree&& other);
+        rbtree(rbtree const& other);
+        rbtree(rbtree&& other);
 
-        ~red_black_tree();
+        ~rbtree();
 
-        red_black_tree& operator=(red_black_tree const& other) &;
-        red_black_tree& operator=(red_black_tree&& other) &;
+        rbtree& operator=(rbtree const& other) &;
+        rbtree& operator=(rbtree&& other) &;
 
         bool empty() const;
         size_type size() const noexcept;
@@ -557,10 +599,11 @@ class red_black_tree {
 
         template <typename T = value_type, typename = impl::enable_if_convertible_t<T, value_type>>
         std::pair<iterator, bool> insert(T&& value);
-        template <typename T = value_type, typename = impl::enable_if_convertible_t<T, value_type>>
-        iterator insert(const_iterator hint, T&& value);
         template <typename InputIt, typename = impl::enable_if_iterator_t<InputIt>>
         void insert(InputIt first, InputIt last);
+
+        template <typename T = value_type, typename = impl::enable_if_convertible_t<T, value_type>>
+        iterator insert(const_iterator hint, T&& value);
 
         template <typename... Args>
         std::pair<iterator, bool> emplace(Args&&... args);
@@ -575,16 +618,16 @@ class red_black_tree {
         iterator find(value_type const& value);
         const_iterator find(value_type const& value) const;
 
-        template <typename T = red_black_tree, typename = impl::enable_if_map_t<T>>
+        template <typename T = rbtree, typename = impl::enable_if_map_t<T>>
         mapped_type& operator[](key_type const& key);
-        template <typename T = red_black_tree, typename = impl::enable_if_map_t<T>>
+        template <typename T = rbtree, typename = impl::enable_if_map_t<T>>
         mapped_type& operator[](key_type&& key);
-        template <typename T = red_black_tree, typename = impl::enable_if_map_t<T>>
+        template <typename T = rbtree, typename = impl::enable_if_map_t<T>>
         mapped_type& at(key_type const& key);
-        template <typename T = red_black_tree, typename = impl::enable_if_map_t<T>>
+        template <typename T = rbtree, typename = impl::enable_if_map_t<T>>
         mapped_type const& at(key_type const& key) const;
 
-        void swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
+        void swap(rbtree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
                                                   std::is_nothrow_swappable<Compare>::value);
 
         iterator lower_bound(value_type const& value);
@@ -612,22 +655,24 @@ class red_black_tree {
         const_reverse_iterator crend() const noexcept;
 
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator==(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator!=(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator!=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator<(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator<=(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator<=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator>(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator>=(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator>=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend void swap(red_black_tree<Val_, Comp_, Alloc_>& left, red_black_tree<Val_, Comp_, Alloc_>& right) noexcept(noexcept(left.swap(right)));
+        friend void swap(rbtree<Val_, Comp_, Alloc_>& left, rbtree<Val_, Comp_, Alloc_>& right) noexcept(noexcept(left.swap(right)));
 
     private:
         node_type* header_;
+        node_type* leftmost_{nullptr};
+        node_type* rightmost_{nullptr};
         node_type* null_node_;
         size_type size_{};
         Alloc allocator_{};
@@ -644,10 +689,8 @@ class red_black_tree {
         node_type* find(value_type const& value, node_type* current) const;
 
         node_type* link(node_type* node, Direction dir) const;
-        node_type* min_node() const;
-        node_type* max_node() const;
-        static node_type* min_node(node_type* root);
-        static node_type* max_node(node_type* root);
+        static node_type* leftmost(node_type* root);
+        static node_type* rightmost(node_type* root);
         static node_type* successor(node_type* node);
         static node_type* predecessor(node_type* node);
 
@@ -658,23 +701,28 @@ class red_black_tree {
         static node_type* left_left_rotate(node_type* root, node_type* parent);
         static node_type* right_right_rotate(node_type* root, node_type* parent);
 
-        void balance_before_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
-        void balance_before_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
+        void balance_during_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
+        void balance_during_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
 
-        node_type* unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent);
+        void enqueue_as_left_child(node_type* new_node, node_type* current);
+        void enqueue_as_right_child(node_type* new_node, node_type* current);
+
+        node_type* enqueue_node(node_type* new_node, Direction as_child, node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
+
+        node_type* dequeue_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent);
+
+        template <typename T>
+        ValueRelation insert_position(T const& value, node_type*& current, node_type*& parent, node_type*& grandparent, node_type*& great_grandparent);
+
+        template <typename T = value_type>
+        node_type* insert_empty(T&& value);
+
 
         template <typename T = value_type>
         std::pair<iterator, bool> insert(T&& value, node_type* current);
-        template <typename T = value_type>
-        iterator insert(const_iterator, T&& value, node_type* current);
-
-        bool insert(node_type* current, node_type* new_node);
         
         template <typename... Args>
         std::pair<iterator, bool> emplace(node_type* current, Args&&... args);
-
-        template <typename... Args>
-        iterator emplace_hint(node_type* current, Args&&... args);
         
         size_type erase(value_type const& value, node_type* current);
 
@@ -694,123 +742,129 @@ class red_black_tree {
 template <typename InputIt, 
           typename Compare = std::less<typename std::iterator_traits<InputIt>::value_type>,
           typename Allocator = std::allocator<typename std::iterator_traits<InputIt>::value_type>>
-red_black_tree(InputIt, InputIt, Compare = Compare{}, Allocator = Allocator{})
-    -> red_black_tree<typename std::iterator_traits<InputIt>::value_type, Compare, Allocator>;
+rbtree(InputIt, InputIt, Compare = Compare{}, Allocator = Allocator{})
+    -> rbtree<typename std::iterator_traits<InputIt>::value_type, Compare, Allocator>;
 
 template <typename InputIt, class Allocator>
-red_black_tree(InputIt, InputIt, Allocator)
-    -> red_black_tree<typename std::iterator_traits<InputIt>::value_type,
+rbtree(InputIt, InputIt, Allocator)
+    -> rbtree<typename std::iterator_traits<InputIt>::value_type,
                       std::less<typename std::iterator_traits<InputIt>::value_type>, Allocator>;
 
 template <typename... Args, 
           typename Compare = std::less<impl::compare_type_t<impl::remove_cvref_t<std::common_type_t<Args...>>>>,
           typename Allocator = std::allocator<std::common_type_t<Args...>>>
-red_black_tree(Args...)
-    -> red_black_tree<std::common_type_t<Args...>, Compare, Allocator>;
+rbtree(Args...)
+    -> rbtree<std::common_type_t<Args...>, Compare, Allocator>;
 
 template <typename Key,
           typename Mapped,
           typename Compare = std::less<std::pair<Key, Mapped>>,
           typename Allocator = std::allocator<std::pair<Key, Mapped>>>
-red_black_tree(std::pair<Key, Mapped>)
-    -> red_black_tree<std::pair<Key const, Mapped>, Compare, Allocator>;
+rbtree(std::pair<Key, Mapped>)
+    -> rbtree<std::pair<Key const, Mapped>, Compare, Allocator>;
 
 template <template <typename , typename> typename Pair,
           typename Key,
           typename... Mapped,
           typename Compare = std::less<std::pair<Key, std::common_type_t<Mapped...>>>,
           typename Allocator = std::allocator<std::pair<Key const, std::common_type_t<Mapped...>>>>
-red_black_tree(Pair<Key, Mapped>...)
-    -> red_black_tree<std::pair<Key const, std::common_type_t<Mapped...>>, Compare, Allocator>;
+rbtree(Pair<Key, Mapped>...)
+    -> rbtree<std::pair<Key const, std::common_type_t<Mapped...>>, Compare, Allocator>;
 
 
 /* Member functions */
 template <typename Value, typename Compare, typename Allocator>
-red_black_tree<Value, Compare, Allocator>::red_black_tree() {
-    init(0x3);
+rbtree<Value, Compare, Allocator>::rbtree() {
+    init(impl::LEAF);
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename T, typename>
-red_black_tree<Value, Compare, Allocator>::red_black_tree(T&& value) {
-    init(0x2);
-    header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
+rbtree<Value, Compare, Allocator>::rbtree(T&& value) {
+    init(impl::LEFT);
+    header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, impl::LEAF);
+    leftmost_ = rightmost_ = header_->right;
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename... Args, typename>
-red_black_tree<Value, Compare, Allocator>::red_black_tree(Args&&... values) {
-    init(0x3);
+rbtree<Value, Compare, Allocator>::rbtree(Args&&... values) {
+    init(impl::LEAF);
     (insert(std::forward<Args>(values)), ...);
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename InputIt, typename>
-red_black_tree<Value, Compare, Allocator>::red_black_tree(InputIt first, InputIt last) {
-    init(0x3);
+rbtree<Value, Compare, Allocator>::rbtree(InputIt first, InputIt last) {
+    init(impl::LEAF);
     insert(first, last);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-red_black_tree<Value, Compare, Allocator>::red_black_tree(red_black_tree const& other) {
+rbtree<Value, Compare, Allocator>::rbtree(rbtree const& other) {
     init(other.header_->thread);
     size_ = other.size_;
-    if(!other.header_->is_leaf())
+    if(!other.header_->is_leaf()) 
         header_->right = clone(header_, header_, other.header_->right);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-red_black_tree<Value, Compare, Allocator>::red_black_tree(red_black_tree&& other) 
-    : header_{other.header_}, null_node_{other.null_node_}, size_{other.size_} {
+rbtree<Value, Compare, Allocator>::rbtree(rbtree&& other) 
+    : header_{other.header_}, leftmost_{other.leftmost_}, rightmost_{other.rightmost_},
+      null_node_{other.null_node_}, size_{other.size_} {
     /* Reset other to empty state */
-    other.init(0x3);
+    other.init(impl::LEAF);
     other.size_ = 0u;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-red_black_tree<Value, Compare, Allocator>::~red_black_tree() {
+rbtree<Value, Compare, Allocator>::~rbtree() {
     clear();
     allocator_.deallocate(header_, 1u);
     allocator_.deallocate(null_node_, 1u);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-red_black_tree<Value, Compare, Allocator>& 
-red_black_tree<Value, Compare, Allocator>::operator=(red_black_tree const& other) & {
+rbtree<Value, Compare, Allocator>& 
+rbtree<Value, Compare, Allocator>::operator=(rbtree const& other) & {
     auto cpy{other};
     std::swap(header_, cpy.header_);
     std::swap(size_, cpy.size_);
+    std::swap(leftmost_, cpy.leftmost_);
+    std::swap(rightmost_, cpy.rightmost_);
     return *this;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-red_black_tree<Value, Compare, Allocator>& 
-red_black_tree<Value, Compare, Allocator>::operator=(red_black_tree&& other) & {
-    init(0x3);
+rbtree<Value, Compare, Allocator>& 
+rbtree<Value, Compare, Allocator>::operator=(rbtree&& other) & {
+    init(impl::LEAF);
     std::swap(header_, other.header_);
     std::swap(size_, other.size_);
+    std::swap(leftmost_, other.leftmost_);
+    std::swap(rightmost_, other.rightmost_);
     return *this;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-bool red_black_tree<Value, Compare, Allocator>::empty() const {
-    return header_->thread & 0x1;
+bool rbtree<Value, Compare, Allocator>::empty() const {
+    return header_->thread & impl::RIGHT;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::size_type
-red_black_tree<Value, Compare, Allocator>::size() const noexcept {
+typename rbtree<Value, Compare, Allocator>::size_type
+rbtree<Value, Compare, Allocator>::size() const noexcept {
     return size_;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::size_type
-red_black_tree<Value, Compare, Allocator>::max_size() const noexcept {
+typename rbtree<Value, Compare, Allocator>::size_type
+rbtree<Value, Compare, Allocator>::max_size() const noexcept {
     return std::allocator_traits<Alloc>::max_size(allocator_);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::clear() noexcept {
+void rbtree<Value, Compare, Allocator>::clear() noexcept {
     if(!empty()) {
         clear(header_->right);
         
@@ -821,14 +875,14 @@ void red_black_tree<Value, Compare, Allocator>::clear() noexcept {
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::allocator_type 
-red_black_tree<Value, Compare, Allocator>::get_allocator() const {
+typename rbtree<Value, Compare, Allocator>::allocator_type 
+rbtree<Value, Compare, Allocator>::get_allocator() const {
     return allocator_;
 }
 
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::print() const {
+void rbtree<Value, Compare, Allocator>::print() const {
     if(empty())
         std::cout << "Tree is empty\n";
     else
@@ -838,72 +892,88 @@ void red_black_tree<Value, Compare, Allocator>::print() const {
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename T, typename>
-std::pair<typename red_black_tree<Value, Compare, Allocator>::iterator, bool> 
-red_black_tree<Value, Compare, Allocator>::insert(T&& value) {
+std::pair<typename rbtree<Value, Compare, Allocator>::iterator, bool> 
+rbtree<Value, Compare, Allocator>::insert(T&& value) {
     if(empty()) {
-        header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
-        header_->unset_right_thread();
-    
-        size_++;
+        node_type* node = insert_empty(std::forward<T>(value));
         
-        return {iterator{this, header_->right}, true};
+        return {iterator{this, node}, true};
     }
     return insert(std::forward<T>(value), header_->right);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-template <typename T, typename>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::insert(const_iterator hint, T&& value) {
-    if(empty()) {
-        header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, 0x3);
-        header_->unset_right_thread();
-    
-        size_++;
-        
-        return iterator{this, header_->right};
-    }
-    return insert(hint, std::forward<T>(value), header_->right);
-}
-
-template <typename Value, typename Compare, typename Allocator>
 template <typename InputIt, typename>
-void red_black_tree<Value, Compare, Allocator>::insert(InputIt first, InputIt last) {
+void rbtree<Value, Compare, Allocator>::insert(InputIt first, InputIt last) {
     while(first != last)
         insert(*first++);
 }
 
 template <typename Value, typename Compare, typename Allocator>
+template <typename T, typename>
+typename rbtree<Value, Compare, Allocator>::iterator
+rbtree<Value, Compare, Allocator>::insert(const_iterator hint, T&& value) {
+    using impl::equals;
+
+    bool suitable_parent = hint.current_->color == Color::Black &&
+                           !hint.current_->has_left_child();
+
+    bool lt_parent = compare_(value, hint.current_->value);
+
+    if(hint != end() && suitable_parent && lt_parent) {
+        if(equals<Compare>(value, hint.current_->left->value))
+            return end();
+
+        node_type* node = allocate(std::forward<T>(value), nullptr, nullptr, Color::Red, impl::LEAF);
+        enqueue_as_left_child(node, hint.current_);
+
+        return iterator{this, node};
+    }
+    
+    return insert(std::forward<T>(value)).first;
+}
+
+template <typename Value, typename Compare, typename Allocator>
 template <typename... Args>
-std::pair<typename red_black_tree<Value, Compare, Allocator>::iterator, bool> 
-red_black_tree<Value, Compare, Allocator>::emplace(Args&&... args) {
+std::pair<typename rbtree<Value, Compare, Allocator>::iterator, bool> 
+rbtree<Value, Compare, Allocator>::emplace(Args&&... args) {
     if(empty()) {
-        header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, 0x3);
-        header_->unset_right_thread();
-        
-        size_++;
-        return {iterator{this, header_->right}, true};
+        node_type* node = insert_empty(value_type{std::forward<Args>(args)...});
+
+        return {iterator{this, node}, true};
     }
     return emplace(header_->right, std::forward<Args>(args)...);
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename... Args>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::emplace_hint(const_iterator, Args&&... args) {
-    if(empty()) {
-        header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, 0x3);
-        header_->unset_right_thread();
-        
-        size_++;
-        return iterator{this, header_->right};
+typename rbtree<Value, Compare, Allocator>::iterator
+rbtree<Value, Compare, Allocator>::emplace_hint(const_iterator hint, Args&&... args) {
+    using impl::equals;
+
+    value_type value{std::forward<Args>(args)...};
+    bool suitable_parent = hint.current_->color == Color::Black &&
+                           !hint.current_->has_left_child();
+
+    bool lt_parent = compare_(value, hint.current_->value);
+
+    if(hint != end() && suitable_parent && lt_parent) {
+        if(equals<Compare>(value, hint.current_->left->value))
+            return end();
+
+        node_type* node = allocate(std::move(value), nullptr, nullptr, Color::Red, impl::LEAF);
+        enqueue_as_left_child(node, hint.current_);
+
+        return iterator{this, node};
     }
-    return emplace_hint(header_->right, std::forward<Args>(args)...);
+    
+    return emplace(std::move(value)).first;
+
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::size_type
-red_black_tree<Value, Compare, Allocator>::erase(value_type const& value) {
+typename rbtree<Value, Compare, Allocator>::size_type
+rbtree<Value, Compare, Allocator>::erase(value_type const& value) {
     if(empty())
         return 0u;
     
@@ -911,7 +981,7 @@ red_black_tree<Value, Compare, Allocator>::erase(value_type const& value) {
 }
 
 template <typename Value, typename Compare, typename Allocator>
-bool red_black_tree<Value, Compare, Allocator>::contains(value_type const& value) const  {
+bool rbtree<Value, Compare, Allocator>::contains(value_type const& value) const  {
     if(empty())
         return false;
 
@@ -938,14 +1008,14 @@ bool red_black_tree<Value, Compare, Allocator>::contains(value_type const& value
 } 
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::size_type
-red_black_tree<Value, Compare, Allocator>::count(value_type const& value) const {
+typename rbtree<Value, Compare, Allocator>::size_type
+rbtree<Value, Compare, Allocator>::count(value_type const& value) const {
     return static_cast<size_type>(contains(value));
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::find(value_type const& value) {
+typename rbtree<Value, Compare, Allocator>::iterator 
+rbtree<Value, Compare, Allocator>::find(value_type const& value) {
     if(empty())
         return end();
     
@@ -953,8 +1023,8 @@ red_black_tree<Value, Compare, Allocator>::find(value_type const& value) {
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_iterator 
-red_black_tree<Value, Compare, Allocator>::find(value_type const& value) const {
+typename rbtree<Value, Compare, Allocator>::const_iterator 
+rbtree<Value, Compare, Allocator>::find(value_type const& value) const {
     if(empty())
         return cend();
     
@@ -963,22 +1033,22 @@ red_black_tree<Value, Compare, Allocator>::find(value_type const& value) const {
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename, typename>
-typename red_black_tree<Value, Compare, Allocator>::mapped_type& 
-red_black_tree<Value, Compare, Allocator>::operator[](key_type const& key) {
+typename rbtree<Value, Compare, Allocator>::mapped_type& 
+rbtree<Value, Compare, Allocator>::operator[](key_type const& key) {
     return (*insert(std::pair{key, mapped_type{}}, header_->right)).second;
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename, typename>
-typename red_black_tree<Value, Compare, Allocator>::mapped_type& 
-red_black_tree<Value, Compare, Allocator>::operator[](key_type&& key) {
+typename rbtree<Value, Compare, Allocator>::mapped_type& 
+rbtree<Value, Compare, Allocator>::operator[](key_type&& key) {
     return (*insert(std::pair{std::move(key), mapped_type{}}, header_->right).first).second;
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename, typename>
-typename red_black_tree<Value, Compare, Allocator>::mapped_type& 
-red_black_tree<Value, Compare, Allocator>::at(key_type const& key) {
+typename rbtree<Value, Compare, Allocator>::mapped_type& 
+rbtree<Value, Compare, Allocator>::at(key_type const& key) {
     if(auto it = find(std::pair{key, mapped_type{}}); it != end())
         return it->second;
 
@@ -987,8 +1057,8 @@ red_black_tree<Value, Compare, Allocator>::at(key_type const& key) {
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename, typename>
-typename red_black_tree<Value, Compare, Allocator>::mapped_type const& 
-red_black_tree<Value, Compare, Allocator>::at(key_type const& key) const {
+typename rbtree<Value, Compare, Allocator>::mapped_type const& 
+rbtree<Value, Compare, Allocator>::at(key_type const& key) const {
     if(auto it = find(std::pair{key, mapped_type{}}); it != end())
         return it->second;
 
@@ -996,39 +1066,47 @@ red_black_tree<Value, Compare, Allocator>::at(key_type const& key) const {
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::swap(red_black_tree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
+void rbtree<Value, Compare, Allocator>::swap(rbtree& other) noexcept(std::allocator_traits<Allocator>::is_always_equal::value &&
                                                         std::is_nothrow_swappable<Compare>::value) {
     std::swap(header_, other.header_);
     std::swap(size_, other.size_);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::lower_bound(value_type const& value) {
+typename rbtree<Value, Compare, Allocator>::iterator 
+rbtree<Value, Compare, Allocator>::lower_bound(value_type const& value) {
+    if(empty())
+        return end();
     return iterator{this, lower_bound(value, header_->right)};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_iterator 
-red_black_tree<Value, Compare, Allocator>::lower_bound(value_type const& value) const {
+typename rbtree<Value, Compare, Allocator>::const_iterator 
+rbtree<Value, Compare, Allocator>::lower_bound(value_type const& value) const {
+    if(empty())
+        return end();
     return const_iterator{this, lower_bound(value, header_->right)};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::upper_bound(value_type const& value) {
+typename rbtree<Value, Compare, Allocator>::iterator 
+rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value) {
+    if(empty())
+        return end();
     return iterator{this, upper_bound(value, header_->right)};
 }
 
 template <typename Value, typename Compare, typename Allocator> 
-typename red_black_tree<Value, Compare, Allocator>::const_iterator 
-red_black_tree<Value, Compare, Allocator>::upper_bound(value_type const& value) const {
+typename rbtree<Value, Compare, Allocator>::const_iterator 
+rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value) const {
+    if(empty())
+        return end();
     return const_iterator{this, upper_bound(value, header_->right)};
 }
 
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::assert_properties() const {
+void rbtree<Value, Compare, Allocator>::assert_properties() const {
     if(!empty()) {
         if(header_->right->color != Color::Black)
             throw color_violation_exception{"Root is red\n"};
@@ -1039,79 +1117,79 @@ void red_black_tree<Value, Compare, Allocator>::assert_properties() const {
 #endif
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::begin() noexcept {
-    return iterator{this, min_node()};
+typename rbtree<Value, Compare, Allocator>::iterator 
+rbtree<Value, Compare, Allocator>::begin() noexcept {
+    return iterator{this, leftmost_};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::end() noexcept {
+typename rbtree<Value, Compare, Allocator>::iterator 
+rbtree<Value, Compare, Allocator>::end() noexcept {
     return iterator{this};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_iterator 
-red_black_tree<Value, Compare, Allocator>::begin() const noexcept {
-    return const_iterator{this, min_node()};
+typename rbtree<Value, Compare, Allocator>::const_iterator 
+rbtree<Value, Compare, Allocator>::begin() const noexcept {
+    return const_iterator{this, leftmost_};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_iterator 
-red_black_tree<Value, Compare, Allocator>::end() const noexcept {
+typename rbtree<Value, Compare, Allocator>::const_iterator 
+rbtree<Value, Compare, Allocator>::end() const noexcept {
     return const_iterator{this};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_iterator 
-red_black_tree<Value, Compare, Allocator>::cbegin() const noexcept {
-    return const_iterator{this, min_node()};
+typename rbtree<Value, Compare, Allocator>::const_iterator 
+rbtree<Value, Compare, Allocator>::cbegin() const noexcept {
+    return const_iterator{this, leftmost_};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_iterator 
-red_black_tree<Value, Compare, Allocator>::cend() const noexcept {
+typename rbtree<Value, Compare, Allocator>::const_iterator 
+rbtree<Value, Compare, Allocator>::cend() const noexcept {
     return const_iterator{this};
 }
     
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::reverse_iterator 
-red_black_tree<Value, Compare, Allocator>::rbegin() noexcept {
-    return reverse_iterator{this, max_node()};
+typename rbtree<Value, Compare, Allocator>::reverse_iterator 
+rbtree<Value, Compare, Allocator>::rbegin() noexcept {
+    return reverse_iterator{this, rightmost_};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::reverse_iterator 
-red_black_tree<Value, Compare, Allocator>::rend() noexcept {
+typename rbtree<Value, Compare, Allocator>::reverse_iterator 
+rbtree<Value, Compare, Allocator>::rend() noexcept {
     return reverse_iterator{this};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_reverse_iterator 
-red_black_tree<Value, Compare, Allocator>::rbegin() const noexcept {
-    return const_reverse_iterator{this, max_node()};
+typename rbtree<Value, Compare, Allocator>::const_reverse_iterator 
+rbtree<Value, Compare, Allocator>::rbegin() const noexcept {
+    return const_reverse_iterator{this, rightmost_};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_reverse_iterator 
-red_black_tree<Value, Compare, Allocator>::rend() const noexcept {
+typename rbtree<Value, Compare, Allocator>::const_reverse_iterator 
+rbtree<Value, Compare, Allocator>::rend() const noexcept {
     return const_reverse_iterator{this};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_reverse_iterator 
-red_black_tree<Value, Compare, Allocator>::crbegin() const noexcept {
-    return const_reverse_iterator{this, max_node()};
+typename rbtree<Value, Compare, Allocator>::const_reverse_iterator 
+rbtree<Value, Compare, Allocator>::crbegin() const noexcept {
+    return const_reverse_iterator{this, rightmost_};
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::const_reverse_iterator 
-red_black_tree<Value, Compare, Allocator>::crend() const noexcept {
+typename rbtree<Value, Compare, Allocator>::const_reverse_iterator 
+rbtree<Value, Compare, Allocator>::crend() const noexcept {
     return const_reverse_iterator{this};
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator==(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right) {
+bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
     if(left.size() != right.size())
         return false;
 
@@ -1125,12 +1203,12 @@ bool operator==(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator!=(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right) {
+bool operator!=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
     return !(left == right);
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator<(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right) {
+bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
     Comp_ compare{};
     auto left_it = std::cbegin(left);
     auto right_it = std::cbegin(right);
@@ -1145,7 +1223,7 @@ bool operator<(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<V
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator>(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right) {
+bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
     Comp_ compare{};
     auto left_it = std::cbegin(left);
     auto right_it = std::cbegin(right);
@@ -1160,27 +1238,27 @@ bool operator>(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<V
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator<=(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right) {
+bool operator<=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
     return !(left > right);
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator>=(red_black_tree<Val_, Comp_, Alloc_> const& left, red_black_tree<Val_, Comp_, Alloc_> const& right) {
+bool operator>=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
     return !(left < right);
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-void swap(red_black_tree<Val_, Comp_, Alloc_>& left, red_black_tree<Val_, Comp_, Alloc_>& right) noexcept(noexcept(left.swap(right))) {
+void swap(rbtree<Val_, Comp_, Alloc_>& left, rbtree<Val_, Comp_, Alloc_>& right) noexcept(noexcept(left.swap(right))) {
     left.swap(right);
 }
 
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::print(node_type* t, unsigned indentation) const {
+void rbtree<Value, Compare, Allocator>::print(node_type* t, unsigned indentation) const {
     if(t->has_right_child())
         print(t->right, indentation + 2);
 
-    if constexpr(impl::is_map_v<red_black_tree>)
+    if constexpr(impl::is_map_v<rbtree>)
         std::cout << std::setw(indentation) << "" << "{" << t->value.first << ", " << t->value.second << "}\n";
     else
         std::cout << std::setw(indentation) << "" << t->value << "\n";
@@ -1192,8 +1270,8 @@ void red_black_tree<Value, Compare, Allocator>::print(node_type* t, unsigned ind
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename T>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::allocate(T&& value, node_type* lc, node_type* rc, Color col, unsigned char thread) {
     node_type* node = allocator_.allocate(1u);
     node = new (node) node_type{std::forward<T>(value), lc, rc, col, thread};
 
@@ -1201,7 +1279,7 @@ red_black_tree<Value, Compare, Allocator>::allocate(T&& value, node_type* lc, no
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::init(unsigned char thread) {
+void rbtree<Value, Compare, Allocator>::init(unsigned char thread) {
     header_ = allocate(value_type{}, nullptr, nullptr, Color::Black, thread);
     header_->left = header_;
 
@@ -1210,12 +1288,14 @@ void red_black_tree<Value, Compare, Allocator>::init(unsigned char thread) {
     else
         size_++;
     
-    null_node_ = allocate(value_type{}, nullptr, nullptr, Color::Black, 0x3);
+    null_node_ = allocate(value_type{}, nullptr, nullptr, Color::Black, impl::LEAF);
     null_node_->left = null_node_->right = null_node_;
+
+    leftmost_ = rightmost_ = header_;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::clear(node_type* current) noexcept {
+void rbtree<Value, Compare, Allocator>::clear(node_type* current) noexcept {
     if(current->has_left_child())
         clear(current->left);
     if(current->has_right_child())
@@ -1225,21 +1305,25 @@ void red_black_tree<Value, Compare, Allocator>::clear(node_type* current) noexce
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type* 
-red_black_tree<Value, Compare, Allocator>::clone(node_type* pred, node_type* succ, node_type* other) {
+typename rbtree<Value, Compare, Allocator>::node_type* 
+rbtree<Value, Compare, Allocator>::clone(node_type* pred, node_type* succ, node_type* other) {
     node_type* node = allocate(other->value, pred, succ, other->color, other->thread);
 
     if(other->has_left_child())
         node->left = clone(pred, node, other->left);
+    else if(leftmost_ == header_ || compare_(node->value, leftmost_->value))
+        leftmost_ = node;
     if(other->has_right_child())
         node->right = clone(node, succ, other->right);
+    else if(rightmost_ == header_ || compare_(rightmost_->value, node->value))
+        rightmost_ = node;
 
     return node;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::find(value_type const& value, node_type* current) const {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::find(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value)) {
             if(current->has_left_child())
@@ -1259,8 +1343,8 @@ red_black_tree<Value, Compare, Allocator>::find(value_type const& value, node_ty
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::link(node_type* node, Direction dir) const {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::link(node_type* node, Direction dir) const {
     if(dir == Direction::Right)
         return node->has_right_child() ? node->right : null_node_;
     
@@ -1268,20 +1352,8 @@ red_black_tree<Value, Compare, Allocator>::link(node_type* node, Direction dir) 
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::min_node() const {
-    return min_node(header_->right);
-}
-
-template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::max_node() const {
-    return max_node(header_->right);
-}
-
-template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::min_node(node_type* root) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::leftmost(node_type* root) {
     while(root->has_left_child())
         root = root->left;
 
@@ -1289,8 +1361,8 @@ red_black_tree<Value, Compare, Allocator>::min_node(node_type* root) {
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::max_node(node_type* root) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::rightmost(node_type* root) {
     while(root->has_right_child())
         root = root->right;
 
@@ -1298,20 +1370,20 @@ red_black_tree<Value, Compare, Allocator>::max_node(node_type* root) {
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::successor(node_type* node) {
-    return node->has_right_child() ? min_node(node->right) : node->right;
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::successor(node_type* node) {
+    return node->has_right_child() ? leftmost(node->right) : node->right;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::predecessor(node_type* node) {
-    return node->has_left_child() ? max_node(node->left) : node->left;
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::predecessor(node_type* node) {
+    return node->has_left_child() ? rightmost(node->left) : node->left;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::left_rotate(node_type* root, node_type* parent) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::left_rotate(node_type* root, node_type* parent) {
     node_type* new_root = root->right;
 
     if(new_root->has_left_child())
@@ -1337,8 +1409,8 @@ red_black_tree<Value, Compare, Allocator>::left_rotate(node_type* root, node_typ
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::right_rotate(node_type* root, node_type* parent) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::right_rotate(node_type* root, node_type* parent) {
     node_type* new_root = root->left;
 
     if(new_root->has_right_child())
@@ -1364,35 +1436,110 @@ red_black_tree<Value, Compare, Allocator>::right_rotate(node_type* root, node_ty
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::left_right_rotate(node_type* root, node_type* parent) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::left_right_rotate(node_type* root, node_type* parent) {
     left_rotate(root->left, root);
     return right_rotate(root, parent);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::right_left_rotate(node_type* root, node_type* parent) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::right_left_rotate(node_type* root, node_type* parent) {
     right_rotate(root->right, root);
     return left_rotate(root, parent);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::left_left_rotate(node_type* root, node_type* parent) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::left_left_rotate(node_type* root, node_type* parent) {
     right_rotate(root->left, root);
     return right_rotate(root, parent);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::right_right_rotate(node_type* root, node_type* parent) {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::right_right_rotate(node_type* root, node_type* parent) {
     left_rotate(root->right, root);
     return left_rotate(root, parent);
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::balance_before_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
+template <typename T>
+impl::ValueRelation rbtree<Value, Compare, Allocator>::insert_position(T const& value, node_type*& current, node_type*& parent, node_type*& grandparent, node_type*& great_grandparent) {
+    static_assert(std::is_convertible_v<value_type, impl::remove_cvref_t<T>> ||
+                  std::is_same_v<node_type, std::remove_pointer_t<T>>);
+
+    Direction dir;
+    ValueRelation relation;
+
+    while(true) {
+        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+            balance_during_insert(current, parent, grandparent, great_grandparent);
+
+        great_grandparent = grandparent;
+        grandparent = parent;
+        parent = current;
+
+        auto auto_compare = [](auto const& left, auto const& right) {
+            Compare comp;
+            if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(left)>, node_type>) {
+                if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(right)>, node_type>) 
+                    return comp(left.value, right.value);
+                else
+                    return comp(left.value, right);
+            }
+            else {
+                if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(right)>, node_type>)
+                    return comp(left, right.value);
+                else
+                    return comp(left, right);
+            }
+        };
+    
+        if(auto_compare(value, current->value)) {
+            if(!current->has_left_child()) {
+                relation = ValueRelation::Less;
+                break;
+            }
+            else
+                dir = Direction::Left;
+        }
+        else if(auto_compare(current->value, value)) {
+            if(!current->has_right_child()) {
+                relation = ValueRelation::Larger;
+                break;
+            }
+            else
+                dir = Direction::Right;
+        }
+        else {
+            header_->right->color = Color::Black;
+            return ValueRelation::Equal;
+        }
+
+        current = link(current, dir);
+    }
+
+    header_->right->color = Color::Black;
+    return relation;
+}
+
+template <typename Value, typename Compare, typename Allocator>
+template <typename T>
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::insert_empty(T&& value) {
+    header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, impl::LEAF);
+    header_->unset_right_thread();
+
+    size_++;
+
+    leftmost_ = rightmost_ = header_->right;
+
+    return header_->right;
+}
+
+template <typename Value, typename Compare, typename Allocator>
+void rbtree<Value, Compare, Allocator>::balance_during_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
     current->color = Color::Red;
 
     if(current->has_left_child() && current->has_right_child())
@@ -1425,7 +1572,7 @@ void red_black_tree<Value, Compare, Allocator>::balance_before_insert(node_type*
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void red_black_tree<Value, Compare, Allocator>::balance_before_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
+void rbtree<Value, Compare, Allocator>::balance_during_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
     /* Node in opposite direciton is red, current and link(current, dir) are black. 
      * rotate red node into the path */
     if(link(current, !dir)->color == Color::Red) {
@@ -1472,8 +1619,60 @@ void red_black_tree<Value, Compare, Allocator>::balance_before_remove(Direction 
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::unlink_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
+void rbtree<Value, Compare, Allocator>::enqueue_as_left_child(node_type* new_node, node_type* current) {
+    current->unset_left_thread();
+    new_node->left = current->left;
+    new_node->right = current;
+    current->left = new_node;
+
+    if(compare_(new_node->value, leftmost_->value))
+        leftmost_ = current->left;
+
+    ++size_;
+}
+
+template <typename Value, typename Compare, typename Allocator>
+void rbtree<Value, Compare, Allocator>::enqueue_as_right_child(node_type* new_node, node_type* current) {
+    current->unset_right_thread();
+    new_node->left = current;
+    new_node->right = current->right;
+    current->right = new_node;
+
+    if(compare_(rightmost_->value, new_node->value))
+        rightmost_ = current->right;
+
+    ++size_;
+}
+
+template <typename Value, typename Compare, typename Allocator>
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::enqueue_node(node_type* new_node, Direction as_child, 
+        node_type* current, node_type* parent, 
+        node_type* grandparent, node_type* great_grandparent) {
+
+    if(as_child == Direction::Left) 
+        enqueue_as_left_child(new_node, current);
+    else 
+        enqueue_as_right_child(new_node, current);
+
+    current = link(current, as_child);
+
+    balance_during_insert(current, parent, grandparent, great_grandparent);
+    header_->right->color = Color::Black;
+
+    return current;
+}
+
+template <typename Value, typename Compare, typename Allocator>
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::dequeue_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
+    using impl::equals;
+
+    if(equals<Compare>(internal->value, leftmost_->value))
+        leftmost_ = successor(leftmost_);
+    if(equals<Compare>(internal->value, rightmost_->value))
+        rightmost_ = predecessor(rightmost_);
+
     /* Unlinking a leaf */
     if(internal->is_leaf()) {
         if(internal_parent->left == internal) {
@@ -1542,317 +1741,53 @@ red_black_tree<Value, Compare, Allocator>::unlink_node(node_type* internal, node
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename T>
-std::pair<typename red_black_tree<Value, Compare, Allocator>::iterator, bool> 
-red_black_tree<Value, Compare, Allocator>::insert(T&& value, node_type* current) {
+std::pair<typename rbtree<Value, Compare, Allocator>::iterator, bool> 
+rbtree<Value, Compare, Allocator>::insert(T&& value, node_type* current) {
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
-
-    Direction dir;
-
-    while(true) {
-        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
-        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            balance_before_insert(current, parent, grandparent, great_grandparent);
-
-        great_grandparent = grandparent;
-        grandparent = parent;
-        parent = current;
+    auto val_rel = insert_position(value, current, parent, grandparent, great_grandparent);
     
-        if(compare_(value, current->value)) {
-            dir = Direction::Left;
+    if(val_rel == ValueRelation::Equal)
+        return {iterator{this, current}, false};
+    node_type* new_node = allocate(std::forward<T>(value), nullptr, nullptr, Color::Red, impl::LEAF);
 
-            /* Insert */
-            if(!current->has_left_child()) {
-                current->unset_left_thread();
-                current->left = allocate(std::forward<T>(value), current->left, current, Color::Red, 0x3);
-                current = current->left;
-                break;
-            }
-        }
-        else if(compare_(current->value, value)) {
-            dir = Direction::Right;
-            
-            /* Insert */
-            if(!current->has_right_child()) {
-                current->unset_right_thread();
-                current->right = allocate(std::forward<T>(value), current, current->right, Color::Red, 0x3);
-                current = current->right;
-                break;
-            }
-        }
-        /* Already in tree */
-        else {
-            /* Ensure root is black */
-            header_->right->color = Color::Black;
-            return {iterator{this, current}, false};
-        }
+    node_type* node = enqueue_node(new_node, dir_from_value_rel(val_rel),
+                                   current, parent, grandparent, great_grandparent);
 
-        /* Move down */
-        current = link(current, dir);
-    }
-    balance_before_insert(current, parent, grandparent, great_grandparent);
-
-    /* Ensure root is black */
-    header_->right->color = Color::Black;
-    ++size_;
     
-    return {iterator{this, current}, true};
-}
-
-template <typename Value, typename Compare, typename Allocator>
-template <typename T>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::insert(const_iterator, T&& value, node_type* current) {
-    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
-
-    Direction dir;
-
-    while(true) {
-        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
-        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            balance_before_insert(current, parent, grandparent, great_grandparent);
-
-        great_grandparent = grandparent;
-        grandparent = parent;
-        parent = current;
-    
-        if(compare_(value, current->value)) {
-            dir = Direction::Left;
-
-            /* Insert */
-            if(!current->has_left_child()) {
-                current->unset_left_thread();
-                current->left = allocate(std::forward<T>(value), current->left, current, Color::Red, 0x3);
-                current = current->left;
-                break;
-            }
-        }
-        else if(compare_(current->value, value)) {
-            dir = Direction::Right;
-            
-            /* Insert */
-            if(!current->has_right_child()) {
-                current->unset_right_thread();
-                current->right = allocate(std::forward<T>(value), current, current->right, Color::Red, 0x3);
-                current = current->right;
-                break;
-            }
-        }
-        /* Already in tree */
-        else {
-            /* Ensure root is black */
-            header_->right->color = Color::Black;
-            return iterator{this, current};
-        }
-
-        /* Move down */
-        current = link(current, dir);
-    }
-    balance_before_insert(current, parent, grandparent, great_grandparent);
-
-    /* Ensure root is black */
-    header_->right->color = Color::Black;
-    ++size_;
-    
-    return iterator{this, current};
-}
-
-template <typename Value, typename Compare, typename Allocator>
-bool red_black_tree<Value, Compare, Allocator>::insert(node_type* current, node_type* new_node) {
-    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
-
-    Direction dir;
-
-    while(true) {
-        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
-        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            balance_before_insert(current, parent, grandparent, great_grandparent);
-
-        great_grandparent = grandparent;
-        grandparent = parent;
-        parent = current;
-    
-        if(compare_(new_node->value, current->value)) {
-            dir = Direction::Left;
-
-            /* Insert */
-            if(!current->has_left_child()) {
-                current->unset_left_thread();
-                new_node->left = current->left;
-                new_node->right = current;
-                new_node->color = Color::Red;
-                new_node->thread = 0x3;
-                current->left = new_node;
-                current = current->left;
-                break;
-            }
-        }
-        else if(compare_(current->value, new_node->value)) {
-            dir = Direction::Right;
-            
-            /* Insert */
-            if(!current->has_right_child()) {
-                current->unset_right_thread();
-                new_node->left = current;
-                new_node->right = current->right;
-                new_node->color = Color::Red;
-                new_node->thread = 0x3;
-                current->right = new_node;
-                current = current->right;
-                break;
-            }
-        }
-        /* Already in tree */
-        else {
-            /* Ensure root is black */
-            header_->right->color = Color::Black;
-            return false;
-        }
-
-        /* Move down */
-        current = link(current, dir);
-    }
-    balance_before_insert(current, parent, grandparent, great_grandparent);
-
-    /* Ensure root is black */
-    header_->right->color = Color::Black;
-    ++size_;
-
-    return true;
+    return {iterator{this, node}, true};
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename... Args>
-std::pair<typename red_black_tree<Value, Compare, Allocator>::iterator, bool> 
-red_black_tree<Value, Compare, Allocator>::emplace(node_type* current, Args&&... args) {
-    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
-
-    Direction dir;
-    node_type* new_node = allocate(value_type{std::forward<Args>(args)...}, nullptr, nullptr, Color::Red, 0x3);
-
-    while(true) {
-        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
-        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            balance_before_insert(current, parent, grandparent, great_grandparent);
-
-        great_grandparent = grandparent;
-        grandparent = parent;
-        parent = current;
-    
-        if(compare_(new_node->value, current->value)) {
-            dir = Direction::Left;
-
-            /* Insert */
-            if(!current->has_left_child()) {
-                current->unset_left_thread();
-                new_node->left = current->left;
-                new_node->right = current;
-                current->left = new_node;
-                current = current->left;
-                break;
-            }
-        }
-        else if(compare_(current->value, new_node->value)) {
-            dir = Direction::Right;
-            
-            /* Insert */
-            if(!current->has_right_child()) {
-                current->unset_right_thread();
-                new_node->left = current;
-                new_node->right = current->right;
-                current->right = new_node;
-                current = current->right;
-                break;
-            }
-        }
-        /* Already in tree */
-        else {
-            /* Ensure root is black */
-            header_->right->color = Color::Black;
-            allocator_.deallocate(new_node, 1u);
-            return {iterator{this, current}, false};
-        }
-
-        /* Move down */
-        current = link(current, dir);
-    }
-    balance_before_insert(current, parent, grandparent, great_grandparent);
-
-    /* Ensure root is black */
-    header_->right->color = Color::Black;
-    ++size_;
-    
-    return {iterator{this, current}, true};
-}
-
-template <typename Value, typename Compare, typename Allocator>
-template <typename... Args>
-typename red_black_tree<Value, Compare, Allocator>::iterator 
-red_black_tree<Value, Compare, Allocator>::emplace_hint(node_type* current, Args&&... args) {
-    node_type* new_node = allocate(value_type{std::forward<Args>(args)...}, nullptr, nullptr, Color::Red, 0x3);
+std::pair<typename rbtree<Value, Compare, Allocator>::iterator, bool> 
+rbtree<Value, Compare, Allocator>::emplace(node_type* current, Args&&... args) {
+    using zeroth_type = impl::remove_cvref_t<impl::nth_type_t<0, Args...>>;
 
     node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
-    Direction dir;
 
-    while(true) {
-        /* Both current's left and right children are red (and non-threads), move red nodes upwards */
-        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            balance_before_insert(current, parent, grandparent, great_grandparent);
+    node_type* new_node;
 
-        great_grandparent = grandparent;
-        grandparent = parent;
-        parent = current;
+    if constexpr(sizeof...(Args) == 1 && std::is_same_v<zeroth_type, value_type>)
+        new_node = allocate(std::forward<Args>(args)..., nullptr, nullptr, Color::Red, impl::LEAF);
+    else
+        new_node = allocate(value_type{std::forward<Args>(args)...}, nullptr, nullptr, Color::Red, impl::LEAF);
     
-        if(compare_(new_node->value, current->value)) {
-            dir = Direction::Left;
-
-            /* Insert */
-            if(!current->has_left_child()) {
-                current->unset_left_thread();
-                new_node->left = current->left;
-                new_node->right = current;
-                current->left = new_node;
-                current = current->left;
-                break;
-            }
-        }
-        else if(compare_(current->value, new_node->value)) {
-            dir = Direction::Right;
-            
-            /* Insert */
-            if(!current->has_right_child()) {
-                current->unset_right_thread();
-                new_node->left = current;
-                new_node->right = current->right;
-                current->right = new_node;
-                current = current->right;
-                break;
-            }
-        }
-        /* Already in tree */
-        else {
-            /* Ensure root is black */
-            header_->right->color = Color::Black;
-            allocator_.deallocate(new_node, 1u);
-            return iterator{this, current};
-        }
-
-        /* Move down */
-        current = link(current, dir);
+    ValueRelation val_rel = insert_position(*new_node, current, parent, grandparent, great_grandparent);
+    if(val_rel == ValueRelation::Equal) {
+        allocator_.deallocate(new_node, 1u);
+        return {iterator{this, current}, false};    
     }
 
-    balance_before_insert(current, parent, grandparent, great_grandparent);
+    node_type* node = enqueue_node(new_node, dir_from_value_rel(val_rel),
+                                   current, parent, grandparent, great_grandparent);
 
-    /* Ensure root is black */
-    header_->right->color = Color::Black;
-    ++size_;
-    
-    return iterator{this, current};
+    return {iterator{this, node}, true};
 }
 
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::size_type
-red_black_tree<Value, Compare, Allocator>::erase(value_type const& value, node_type* current) {
+typename rbtree<Value, Compare, Allocator>::size_type
+rbtree<Value, Compare, Allocator>::erase(value_type const& value, node_type* current) {
     node_type *parent = header_, *grandparent = null_node_, *sibling = null_node_, *found = nullptr, *found_parent = nullptr;
     
     Direction dir;
@@ -1862,7 +1797,7 @@ red_black_tree<Value, Compare, Allocator>::erase(value_type const& value, node_t
         
         /* Ensure node to remove is red */
         if(current->color == Color::Black && link(current, dir)->color == Color::Black) {
-            balance_before_remove(dir, current, parent, grandparent, sibling);
+            balance_during_remove(dir, current, parent, grandparent, sibling);
 
             /* If found is either the current or parent, rotations during recoloring may introduce
              * a node between found_parent and found. If this happens, move found_parent down one step */
@@ -1888,7 +1823,7 @@ red_black_tree<Value, Compare, Allocator>::erase(value_type const& value, node_t
     } 
     size_type num_deleted = 0u;
     if(found) {
-        allocator_.deallocate(unlink_node(found, found_parent, current, parent), 1u);
+        allocator_.deallocate(dequeue_node(found, found_parent, current, parent), 1u);
         --size_;
         ++num_deleted;
     }
@@ -1900,8 +1835,8 @@ red_black_tree<Value, Compare, Allocator>::erase(value_type const& value, node_t
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::lower_bound(value_type const& value, node_type* current) const {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::lower_bound(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value)) {
             if(current == header_)
@@ -1925,8 +1860,8 @@ red_black_tree<Value, Compare, Allocator>::lower_bound(value_type const& value, 
 }
 
 template <typename Value, typename Compare, typename Allocator>
-typename red_black_tree<Value, Compare, Allocator>::node_type*
-red_black_tree<Value, Compare, Allocator>::upper_bound(value_type const& value, node_type* current) const {
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value)) {
             if(current == header_)
@@ -1946,6 +1881,7 @@ red_black_tree<Value, Compare, Allocator>::upper_bound(value_type const& value, 
         else
             return successor(current);
     }
+
     return header_;
 }
 
@@ -1953,7 +1889,7 @@ red_black_tree<Value, Compare, Allocator>::upper_bound(value_type const& value, 
             
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-int red_black_tree<Value, Compare, Allocator>::assert_properties(node_type* t) const {
+int rbtree<Value, Compare, Allocator>::assert_properties(node_type* t) const {
     node_type *lh = link(t, Direction::Left), *rh = link(t, Direction::Right);
     
     if(t->color == Color::Red) {
@@ -1991,6 +1927,15 @@ int red_black_tree<Value, Compare, Allocator>::assert_properties(node_type* t) c
 #ifdef TRBT_DEBUG
 namespace impl {
     namespace debug {
+        enum class InsertionMethod {
+            Insert,
+            InsertRange,
+            HintedInsert,
+            Emplace,
+            HintedEmplace
+        };
+
+        template <InsertionMethod method = InsertionMethod::Insert>
         inline void run_test(int test_size = 2000) {
             std::cout << "Running test with size " << test_size << std::endl;
             std::random_device rd;
@@ -2006,10 +1951,27 @@ namespace impl {
 
             vals.erase(std::unique(std::begin(vals), std::end(vals)), std::end(vals));
 
-            red_black_tree<int> rbt{};
-            for(auto const& v : vals) {
-                rbt.insert(v);
+            rbtree<int> rbt{};
+            if constexpr(method == InsertionMethod::InsertRange) {
+                rbt.insert(std::begin(vals), std::end(vals));
                 rbt.assert_properties();
+            }
+            else {
+                for(auto const& v : vals) {
+                    if constexpr(method == InsertionMethod::Insert)
+                        rbt.insert(v);
+                    else if constexpr(method == InsertionMethod::Emplace) {
+                        rbt.emplace(v);
+                    }
+                    else {
+                        auto it = rbt.upper_bound(v);   
+                        if constexpr(method == InsertionMethod::HintedInsert)
+                            rbt.insert(it, v);
+                        else
+                            rbt.emplace_hint(it, v);
+                    }
+                    rbt.assert_properties();
+                }
             }
 
             for(auto const& v : vals) {
