@@ -252,7 +252,7 @@ namespace impl {
     }
 
     template <std::size_t N, typename... Args>
-    struct nth_type : type_is<decltype(get<N>(std::declval<Args>()...))> { };
+    struct nth_type : type_is<remove_cvref_t<decltype(get<N>(std::declval<Args>()...))>> { };
 
     template <std::size_t N, typename... Args>
     using nth_type_t = typename nth_type<N, Args...>::type;
@@ -717,6 +717,9 @@ class rbtree {
         template <typename T = value_type>
         node_type* insert_empty(T&& value);
 
+        template <typename... Args>
+        node_type* emplace_empty(Args&&... args);
+
 
         template <typename T = value_type>
         std::pair<iterator, bool> insert(T&& value, node_type* current);
@@ -938,7 +941,7 @@ template <typename... Args>
 std::pair<typename rbtree<Value, Compare, Allocator>::iterator, bool> 
 rbtree<Value, Compare, Allocator>::emplace(Args&&... args) {
     if(empty()) {
-        node_type* node = insert_empty(value_type{std::forward<Args>(args)...});
+        node_type* node = emplace_empty(std::forward<Args>(args)...);
 
         return {iterator{this, node}, true};
     }
@@ -1535,6 +1538,19 @@ rbtree<Value, Compare, Allocator>::insert_empty(T&& value) {
 
     leftmost_ = rightmost_ = header_->right;
 
+    return header_->right;
+}
+
+template <typename Value, typename Compare, typename Allocator>
+template <typename... Args>
+typename rbtree<Value, Compare, Allocator>::node_type*
+rbtree<Value, Compare, Allocator>::emplace_empty(Args&&... args) {
+    header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, impl::LEAF);
+    header_->unset_right_thread();
+
+    ++size_;
+    leftmost_ = rightmost_ = header_->right;
+    
     return header_->right;
 }
 
