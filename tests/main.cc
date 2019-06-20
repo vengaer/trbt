@@ -1,44 +1,40 @@
 #define TRBT_DEBUG
 #include "trbt.h"
 #include <iostream>
-#include <set>
 
-struct test {
-    test() : i{} {}
-    test(int j) : i{j} { }
-    test(test const&) = delete;
-    test(test&&) = default;
-    test& operator=(test const&) = delete;
-    test& operator=(test&&) = default;
-
-    friend bool operator<(test const& l, test const& r) {
-        return l.i < r.i;
+template <trbt::impl::debug::InsertionMethod method>
+void run(int iters) {
+    using namespace trbt::impl::debug;
+    for(int i = 0; i < iters; i++) {
+        std::cout << "Iteration " << i << "\n";
+        run_test<method>();
     }
-
-    friend bool operator>(test const& l, test const& r) {
-        return l.i > r.i;
-    } 
-        
-    private:
-        int i;
-};
+}
 
 int main() {
-    trbt::rbtree t{1,2,3,4,5,6,7,9,8};
-    trbt::rbtree r{std::pair{1,2}, std::pair{2, 4.0}};
-    for(int i = 0; i < 10; i++)
-        r.emplace(i,i);
+    using namespace trbt::impl::debug;
 
-    r.print();
-    t.print();
-    t.assert_properties();
-    trbt::rbtree<test> tree{};
-    //trbt::impl::debug::run_test<trbt::impl::debug::InsertionMethod::HintedEmplace>();
-    //typename decltype(t)::value_compare a;
-    // TODO: Test leftmost and rightmost
-    for(auto i : t)
-        std::cout << i << " ";
-    std::cout << "\n";
-    std::cout << std::boolalpha << std::is_same_v<int, trbt::impl::nth_type_t<2, int, std::string, int>> << "\n";
+    int constexpr per_method_iters = 2000;
+    int total = 0;
+
+
+    run<InsertionMethod::Insert>(per_method_iters);
+    total += per_method_iters;
+
+    run<InsertionMethod::HintedInsert>(per_method_iters);
+    total += per_method_iters;
+
+    run<InsertionMethod::InsertRange>(per_method_iters);
+    total += per_method_iters;
+
+    run<InsertionMethod::Emplace>(per_method_iters);
+    total += per_method_iters;
+
+    run<InsertionMethod::HintedEmplace>(per_method_iters);
+    total += per_method_iters;
+
+    std::cout << "Finished " << total << " tests successfully\n";
+
+    return 0;
 }
 
