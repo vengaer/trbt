@@ -303,7 +303,10 @@ namespace impl {
 
     template <typename Value>
     struct node {
-        alignas(Value) char storage[sizeof(Value)];
+        static_assert(!std::is_const_v<std::remove_reference_t<Value>>, 
+                      "Value type should never be const");
+
+        alignas(Value) unsigned char storage[sizeof(Value)];
         node *left, *right;
         Color color;
         unsigned char thread;
@@ -316,6 +319,36 @@ namespace impl {
 
         node(node* ln, node* rn, Color col, unsigned char threaded)
             : left{ln}, right{rn}, color{col}, thread{threaded} { }
+
+        node(node const& other) 
+            : left{other.left}, right{other.right}, color{other.color}, thread{other.thread} {
+            new (storage) Value(other.value());
+        }
+    
+        node(node&& other) 
+            : left{other.left}, right{other.right}, color{other.color}, thread{other.thread} {
+            new (storage) Value(std::move(other.value()));
+        }
+
+        node& operator=(node const& other) & {
+            new (storage) Value(other.value());
+            left   = other.left;
+            right  = other.right;
+            color  = other.color;
+            thread = other.thread;
+            
+            return *this;
+        }
+
+        node& operator=(node&& other) & {
+            new (storage) Value(std::move(other.value));
+            left   = other.left;
+            right  = other.right;
+            color  = other.color;
+            thread = other.thread;
+            
+            return *this;
+        }
 
         ~node() {
             reinterpret_cast<Value*>(storage)->~Value();
@@ -361,6 +394,22 @@ namespace impl {
 
     #ifdef TRBT_DEBUG
     namespace debug {
+        inline int constexpr THREAD_ERROR = 0x1;
+        inline int constexpr LINK_ERROR   = 0x2;
+        inline int constexpr NODE_ERROR   = 0x4;
+
+        inline bool constexpr thread_error(int flags) noexcept {
+            return flags & THREAD_ERROR;
+        }
+        
+        inline bool constexpr link_error(int flags) noexcept {
+            return flags & LINK_ERROR;
+        }
+
+        inline bool constexpr node_error(int flags) noexcept {
+            return flags & NODE_ERROR;
+        }
+    
         struct color_violation_exception : std::runtime_error {
             using std::runtime_error::runtime_error;
         };
@@ -371,6 +420,9 @@ namespace impl {
             using std::runtime_error::runtime_error;
         };
         struct value_retention_exception : std::runtime_error {
+            using std::runtime_error::runtime_error;
+        };
+        struct thread_link_exception : std::runtime_error {
             using std::runtime_error::runtime_error;
         };
 
@@ -654,7 +706,9 @@ class rbtree {
         const_iterator upper_bound(value_type const& value) const;
 
         #ifdef TRBT_DEBUG
-        void assert_properties() const;
+        void assert_properties_ok() const;
+        int assert_leftmost_ok() const;
+        int assert_rightmost_ok() const;
         #endif
 
         iterator begin() noexcept;
@@ -690,14 +744,13 @@ class rbtree {
         node_type* header_;
         node_type* leftmost_{nullptr};
         node_type* rightmost_{nullptr};
-        node_type* null_node_;
         size_type size_{};
         Alloc allocator_{};
         key_compare compare_{};
 
         template <typename T = value_type>
-        node_type* allocate(T&& value, node_type* ln, node_type* rn, Color col, unsigned char thread);
-        node_type* allocate(node_type* ln, node_type* rn, Color col, unsigned char thread);
+        node_type* allocate_node(T&& value, node_type* ln, node_type* rn, Color col, unsigned char thread);
+        node_type* allocate_node(node_type* ln, node_type* rn, Color col, unsigned char thread);
 
         void init(unsigned char thread);
         void clear(node_type* current) noexcept;
@@ -719,15 +772,15 @@ class rbtree {
         static node_type* left_left_rotate(node_type* root, node_type* parent);
         static node_type* right_right_rotate(node_type* root, node_type* parent);
 
-        void balance_during_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
-        void balance_during_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
+        void recolor_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
+        void recolor_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
 
         void enqueue_as_left_child(node_type* new_node, node_type* current);
         void enqueue_as_right_child(node_type* new_node, node_type* current);
 
-        node_type* enqueue_node(node_type* new_node, Direction as_child, node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
+        node_type* enqueue_node(node_type* new_node, Direction enq_dir, node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
 
-        node_type* dequeue_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent);
+        node_type* dequeue_node(node_type* to_deq, node_type* to_deq_parent, node_type* descendant, node_type* descendant_parent);
 
         template <typename T>
         ValueRelation insert_position(T const& value, node_type*& current, node_type*& parent, node_type*& grandparent, node_type*& great_grandparent);
@@ -755,7 +808,7 @@ class rbtree {
         #endif
 
         #ifdef TRBT_DEBUG
-        int assert_properties(node_type* t) const;
+        int assert_properties_ok(node_type* t) const;
         #endif
 };
 
@@ -803,7 +856,7 @@ template <typename Value, typename Compare, typename Allocator>
 template <typename T, typename>
 rbtree<Value, Compare, Allocator>::rbtree(T&& value) {
     init(impl::LEFT);
-    header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, impl::LEAF);
+    header_->right = allocate_node(std::forward<T>(value), header_, header_, Color::Black, impl::LEAF);
     leftmost_ = rightmost_ = header_->right;
 }
 
@@ -832,7 +885,8 @@ rbtree<Value, Compare, Allocator>::rbtree(rbtree const& other) {
 template <typename Value, typename Compare, typename Allocator>
 rbtree<Value, Compare, Allocator>::rbtree(rbtree&& other) 
     : header_{other.header_}, leftmost_{other.leftmost_}, rightmost_{other.rightmost_},
-      null_node_{other.null_node_}, size_{other.size_} {
+      size_{other.size_} {
+
     /* Reset other to empty state */
     other.init(impl::LEAF);
     other.size_ = 0u;
@@ -842,7 +896,6 @@ template <typename Value, typename Compare, typename Allocator>
 rbtree<Value, Compare, Allocator>::~rbtree() {
     clear();
     allocator_.deallocate(header_, 1u);
-    allocator_.deallocate(null_node_, 1u);
 }
 
 template <typename Value, typename Compare, typename Allocator>
@@ -869,7 +922,7 @@ rbtree<Value, Compare, Allocator>::operator=(rbtree&& other) & {
 
 template <typename Value, typename Compare, typename Allocator>
 bool rbtree<Value, Compare, Allocator>::empty() const {
-    return header_->thread & impl::RIGHT;
+    return !header_->has_right_child();
 }
 
 template <typename Value, typename Compare, typename Allocator>
@@ -905,7 +958,7 @@ rbtree<Value, Compare, Allocator>::get_allocator() const {
 template <typename Value, typename Compare, typename Allocator>
 void rbtree<Value, Compare, Allocator>::print() const {
     if(empty())
-        std::cout << "Tree is empty\n";
+        std::cerr << "Tree is empty\n";
     else
         print(header_->right);
 }
@@ -945,7 +998,7 @@ rbtree<Value, Compare, Allocator>::insert(const_iterator hint, T&& value) {
         if(equals<Compare>(value, hint.current_->left->value()))
             return iterator{this, hint.current_->left};;
 
-        node_type* node = allocate(std::forward<T>(value), nullptr, nullptr, Color::Red, impl::LEAF);
+        node_type* node = allocate_node(std::forward<T>(value), nullptr, nullptr, Color::Red, impl::LEAF);
         enqueue_as_left_child(node, hint.current_);
 
         return iterator{this, node};
@@ -982,7 +1035,7 @@ rbtree<Value, Compare, Allocator>::emplace_hint(const_iterator hint, Args&&... a
         if(equals<Compare>(value, hint.current_->left->value()))
             return iterator{this, hint.current_->left};
 
-        node_type* node = allocate(std::move(value), nullptr, nullptr, Color::Red, impl::LEAF);
+        node_type* node = allocate_node(std::move(value), nullptr, nullptr, Color::Red, impl::LEAF);
         enqueue_as_left_child(node, hint.current_);
 
         return iterator{this, node};
@@ -1070,6 +1123,7 @@ template <typename Value, typename Compare, typename Allocator>
 template <typename, typename>
 typename rbtree<Value, Compare, Allocator>::mapped_type& 
 rbtree<Value, Compare, Allocator>::at(key_type const& key) {
+
     if(auto it = find(std::pair{key, mapped_type{}}); it != end())
         return it->second;
 
@@ -1080,6 +1134,7 @@ template <typename Value, typename Compare, typename Allocator>
 template <typename, typename>
 typename rbtree<Value, Compare, Allocator>::mapped_type const& 
 rbtree<Value, Compare, Allocator>::at(key_type const& key) const {
+
     if(auto it = find(std::pair{key, mapped_type{}}); it != end())
         return it->second;
 
@@ -1098,6 +1153,7 @@ typename rbtree<Value, Compare, Allocator>::iterator
 rbtree<Value, Compare, Allocator>::lower_bound(value_type const& value) {
     if(empty())
         return end();
+
     return iterator{this, lower_bound(value, header_->right)};
 }
 
@@ -1106,6 +1162,7 @@ typename rbtree<Value, Compare, Allocator>::const_iterator
 rbtree<Value, Compare, Allocator>::lower_bound(value_type const& value) const {
     if(empty())
         return end();
+
     return const_iterator{this, lower_bound(value, header_->right)};
 }
 
@@ -1114,6 +1171,7 @@ typename rbtree<Value, Compare, Allocator>::iterator
 rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value) {
     if(empty())
         return end();
+
     return iterator{this, upper_bound(value, header_->right)};
 }
 
@@ -1122,17 +1180,18 @@ typename rbtree<Value, Compare, Allocator>::const_iterator
 rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value) const {
     if(empty())
         return end();
+
     return const_iterator{this, upper_bound(value, header_->right)};
 }
 
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-void rbtree<Value, Compare, Allocator>::assert_properties() const {
+void rbtree<Value, Compare, Allocator>::assert_properties_ok() const {
     if(!empty()) {
         if(header_->right->color != Color::Black)
             throw color_violation_exception{"Root is red\n"};
         
-        assert_properties(header_->right);
+        assert_properties_ok(header_->right);
     }
 }
 #endif
@@ -1211,13 +1270,16 @@ rbtree<Value, Compare, Allocator>::crend() const noexcept {
 
 template <typename Val_, typename Comp_, typename Alloc_>
 bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
+    using impl::equals;
+    
     if(left.size() != right.size())
         return false;
 
-    auto left_it = std::cbegin(left);
+    auto left_it  = std::cbegin(left);
     auto right_it = std::cbegin(right);
+
     while(left_it != std::cend(left) && right_it != std::cend(right))
-        if(*left_it++ != *right_it++)
+        if(!equals<Comp_>(*left_it++, *right_it++))
             return false;
 
     return true;
@@ -1231,8 +1293,9 @@ bool operator!=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, All
 template <typename Val_, typename Comp_, typename Alloc_>
 bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
     Comp_ compare{};
-    auto left_it = std::cbegin(left);
+    auto left_it  = std::cbegin(left);
     auto right_it = std::cbegin(right);
+
     while(left_it != std::cend(left) && right_it != std::cend(right)) {
         if(compare(*left_it, *right_it))
             return true;
@@ -1246,8 +1309,10 @@ bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Allo
 template <typename Val_, typename Comp_, typename Alloc_>
 bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
     Comp_ compare{};
+
     auto left_it = std::cbegin(left);
     auto right_it = std::cbegin(right);
+
     while(left_it != std::cend(left) && right_it != std::cend(right)) {
         if(compare(*left_it, *right_it))
             return false;
@@ -1278,11 +1343,15 @@ template <typename Value, typename Compare, typename Allocator>
 void rbtree<Value, Compare, Allocator>::print(node_type* t, unsigned indentation) const {
     if(t->has_right_child())
         print(t->right, indentation + 2);
+    
+    std::string const color = t->color == Color::Red ? "R:" : "B:";
 
-    if constexpr(impl::is_map_v<rbtree>)
-        std::cout << std::setw(indentation) << "" << "{" << t->value().first << ", " << t->value().second << "}\n";
-    else
-        std::cout << std::setw(indentation) << "" << t->value() << "\n";
+    if constexpr(impl::is_map_v<rbtree>) {
+        std::cout << color << std::setw(indentation) << ""
+                  << "{" << t->value().first << ", " << t->value().second << "}\n";
+    }
+    else 
+        std::cout << color << std::setw(indentation) << "" << t->value() << "\n";
 
     if(t->has_left_child())
         print(t->left, indentation + 2);
@@ -1292,7 +1361,7 @@ void rbtree<Value, Compare, Allocator>::print(node_type* t, unsigned indentation
 template <typename Value, typename Compare, typename Allocator>
 template <typename T>
 typename rbtree<Value, Compare, Allocator>::node_type*
-rbtree<Value, Compare, Allocator>::allocate(T&& value, node_type* ln, node_type* rn, Color col, unsigned char thread) {
+rbtree<Value, Compare, Allocator>::allocate_node(T&& value, node_type* ln, node_type* rn, Color col, unsigned char thread) {
     node_type* node = allocator_.allocate(1u);
     node = new (node) node_type{std::forward<T>(value), ln, rn, col, thread};
 
@@ -1301,7 +1370,7 @@ rbtree<Value, Compare, Allocator>::allocate(T&& value, node_type* ln, node_type*
 
 template <typename Value, typename Compare, typename Allocator>
 typename rbtree<Value, Compare, Allocator>::node_type* 
-rbtree<Value, Compare, Allocator>::allocate(node_type* ln, node_type* rn, Color col, unsigned char thread) {
+rbtree<Value, Compare, Allocator>::allocate_node(node_type* ln, node_type* rn, Color col, unsigned char thread) {
     node_type* node = allocator_.allocate(1u);
     node = new (node) node_type(ln, rn, col, thread);
 
@@ -1310,7 +1379,7 @@ rbtree<Value, Compare, Allocator>::allocate(node_type* ln, node_type* rn, Color 
 
 template <typename Value, typename Compare, typename Allocator>
 void rbtree<Value, Compare, Allocator>::init(unsigned char thread) {
-    header_ = allocate(nullptr, nullptr, Color::Black, thread);
+    header_ = allocate_node(nullptr, nullptr, Color::Black, thread);
     header_->left = header_;
 
     if(header_->is_leaf())
@@ -1318,9 +1387,6 @@ void rbtree<Value, Compare, Allocator>::init(unsigned char thread) {
     else
         size_++;
     
-    null_node_ = allocate(nullptr, nullptr, Color::Black, impl::LEAF);
-    null_node_->left = null_node_->right = null_node_;
-
     leftmost_ = rightmost_ = header_;
 }
 
@@ -1337,7 +1403,8 @@ void rbtree<Value, Compare, Allocator>::clear(node_type* current) noexcept {
 template <typename Value, typename Compare, typename Allocator>
 typename rbtree<Value, Compare, Allocator>::node_type* 
 rbtree<Value, Compare, Allocator>::clone(node_type* pred, node_type* succ, node_type* other) {
-    node_type* node = allocate(other->value(), pred, succ, other->color, other->thread);
+
+    node_type* node = allocate_node(other->value(), pred, succ, other->color, other->thread);
 
     if(other->has_left_child())
         node->left = clone(pred, node, other->left);
@@ -1376,9 +1443,9 @@ template <typename Value, typename Compare, typename Allocator>
 typename rbtree<Value, Compare, Allocator>::node_type*
 rbtree<Value, Compare, Allocator>::link(node_type* node, Direction dir) const {
     if(dir == Direction::Right)
-        return node->has_right_child() ? node->right : null_node_;
+        return node->has_right_child() ? node->right : header_;
     
-    return node->has_left_child() ? node->left : null_node_;
+    return node->has_left_child() ? node->left : header_;
 }
 
 template <typename Value, typename Compare, typename Allocator>
@@ -1419,9 +1486,7 @@ rbtree<Value, Compare, Allocator>::left_rotate(node_type* root, node_type* paren
     if(new_root->has_left_child())
         root->right = new_root->left;
     else {
-        /* root->right should be thread */
         root->set_right_thread();
-        /* new_root->left no longer thread */
         new_root->unset_left_thread();
     }
 
@@ -1446,9 +1511,7 @@ rbtree<Value, Compare, Allocator>::right_rotate(node_type* root, node_type* pare
     if(new_root->has_right_child())
         root->left = new_root->right;
     else {
-        /* root->left should be thread */
         root->set_left_thread();
-        /* new_root->right no longer thread */
         new_root->unset_right_thread();
     }
 
@@ -1496,35 +1559,37 @@ rbtree<Value, Compare, Allocator>::right_right_rotate(node_type* root, node_type
 template <typename Value, typename Compare, typename Allocator>
 template <typename T>
 impl::ValueRelation rbtree<Value, Compare, Allocator>::insert_position(T const& value, node_type*& current, node_type*& parent, node_type*& grandparent, node_type*& great_grandparent) {
+
     static_assert(std::is_convertible_v<value_type, impl::remove_cvref_t<T>> ||
                   std::is_same_v<node_type, std::remove_pointer_t<T>>);
 
     Direction dir;
     ValueRelation relation;
 
+    auto auto_compare = [](auto const& left, auto const& right) {
+        Compare comp;
+        if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(left)>, node_type>) {
+            if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(right)>, node_type>) 
+                return comp(left.value(), right.value());
+            else
+                return comp(left.value(), right);
+        }
+        else {
+            if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(right)>, node_type>)
+                return comp(left, right.value());
+            else
+                return comp(left, right);
+        }
+    };
+
     while(true) {
         if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
-            balance_during_insert(current, parent, grandparent, great_grandparent);
+            recolor_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
         grandparent = parent;
         parent = current;
 
-        auto auto_compare = [](auto const& left, auto const& right) {
-            Compare comp;
-            if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(left)>, node_type>) {
-                if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(right)>, node_type>) 
-                    return comp(left.value(), right.value());
-                else
-                    return comp(left.value(), right);
-            }
-            else {
-                if constexpr(std::is_same_v<impl::remove_cvref_t<decltype(right)>, node_type>)
-                    return comp(left, right.value());
-                else
-                    return comp(left, right);
-            }
-        };
     
         if(auto_compare(value, current->value())) {
             if(!current->has_left_child()) {
@@ -1558,10 +1623,11 @@ template <typename Value, typename Compare, typename Allocator>
 template <typename T>
 typename rbtree<Value, Compare, Allocator>::node_type*
 rbtree<Value, Compare, Allocator>::insert_empty(T&& value) {
-    header_->right = allocate(std::forward<T>(value), header_, header_, Color::Black, impl::LEAF);
+    header_->right = allocate_node(std::forward<T>(value), header_, header_, 
+                                   Color::Black, impl::LEAF);
     header_->unset_right_thread();
 
-    size_++;
+    ++size_;
 
     leftmost_ = rightmost_ = header_->right;
 
@@ -1572,7 +1638,8 @@ template <typename Value, typename Compare, typename Allocator>
 template <typename... Args>
 typename rbtree<Value, Compare, Allocator>::node_type*
 rbtree<Value, Compare, Allocator>::emplace_empty(Args&&... args) {
-    header_->right = allocate(value_type{std::forward<Args>(args)...}, header_, header_, Color::Black, impl::LEAF);
+    header_->right = allocate_node(value_type{std::forward<Args>(args)...}, header_, header_, 
+                                   Color::Black, impl::LEAF);
     header_->unset_right_thread();
 
     ++size_;
@@ -1582,7 +1649,7 @@ rbtree<Value, Compare, Allocator>::emplace_empty(Args&&... args) {
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void rbtree<Value, Compare, Allocator>::balance_during_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
+void rbtree<Value, Compare, Allocator>::recolor_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
     current->color = Color::Red;
 
     if(current->has_left_child() && current->has_right_child())
@@ -1615,7 +1682,8 @@ void rbtree<Value, Compare, Allocator>::balance_during_insert(node_type* current
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void rbtree<Value, Compare, Allocator>::balance_during_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
+void rbtree<Value, Compare, Allocator>::recolor_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling) {
+
     /* Node in opposite direciton is red, current and link(current, dir) are black. 
      * rotate red node into the path */
     if(link(current, !dir)->color == Color::Red) {
@@ -1658,49 +1726,52 @@ void rbtree<Value, Compare, Allocator>::balance_during_remove(Direction dir, nod
         }
     }
 
-    null_node_->color = Color::Black;
+    header_->color = Color::Black;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void rbtree<Value, Compare, Allocator>::enqueue_as_left_child(node_type* new_node, node_type* current) {
-    current->unset_left_thread();
-    new_node->left = current->left;
-    new_node->right = current;
-    current->left = new_node;
+void rbtree<Value, Compare, Allocator>::enqueue_as_left_child(node_type* new_node, node_type* parent) {
+
+    parent->unset_left_thread();
+    new_node->left = parent->left;
+    new_node->right = parent;
+    parent->left = new_node;
 
     if(compare_(new_node->value(), leftmost_->value()))
-        leftmost_ = current->left;
+        leftmost_ = parent->left;
 
     ++size_;
 }
 
 template <typename Value, typename Compare, typename Allocator>
-void rbtree<Value, Compare, Allocator>::enqueue_as_right_child(node_type* new_node, node_type* current) {
-    current->unset_right_thread();
-    new_node->left = current;
-    new_node->right = current->right;
-    current->right = new_node;
+void rbtree<Value, Compare, Allocator>::enqueue_as_right_child(node_type* new_node, node_type* parent) {
+    parent->unset_right_thread();
+    new_node->left = parent;
+    new_node->right = parent->right;
+    parent->right = new_node;
 
     if(compare_(rightmost_->value(), new_node->value()))
-        rightmost_ = current->right;
+        rightmost_ = parent->right;
 
     ++size_;
 }
 
 template <typename Value, typename Compare, typename Allocator>
 typename rbtree<Value, Compare, Allocator>::node_type*
-rbtree<Value, Compare, Allocator>::enqueue_node(node_type* new_node, Direction as_child, 
-        node_type* current, node_type* parent, 
-        node_type* grandparent, node_type* great_grandparent) {
+rbtree<Value, Compare, Allocator>::enqueue_node(node_type* new_node, Direction enq_dir, 
+                                                node_type* current, node_type* parent, 
+                                                node_type* grandparent, 
+                                                node_type* great_grandparent) 
+{
 
-    if(as_child == Direction::Left) 
+    if(enq_dir == Direction::Left) 
         enqueue_as_left_child(new_node, current);
     else 
         enqueue_as_right_child(new_node, current);
 
-    current = link(current, as_child);
+    current = link(current, enq_dir);
 
-    balance_during_insert(current, parent, grandparent, great_grandparent);
+    recolor_insert(current, parent, grandparent, great_grandparent);
     header_->right->color = Color::Black;
 
     return current;
@@ -1708,95 +1779,97 @@ rbtree<Value, Compare, Allocator>::enqueue_node(node_type* new_node, Direction a
 
 template <typename Value, typename Compare, typename Allocator>
 typename rbtree<Value, Compare, Allocator>::node_type*
-rbtree<Value, Compare, Allocator>::dequeue_node(node_type* internal, node_type* internal_parent, node_type* descendant, node_type* descendant_parent){
-    using impl::equals;
-
-    if(equals<Compare>(internal->value(), leftmost_->value()))
+rbtree<Value, Compare, Allocator>::dequeue_node(node_type* to_deq, node_type* to_deq_parent, node_type* descendant, node_type* descendant_parent) {
+    
+    if(to_deq == leftmost_) 
         leftmost_ = successor(leftmost_);
-    if(equals<Compare>(internal->value(), rightmost_->value()))
+    if(to_deq == rightmost_) 
         rightmost_ = predecessor(rightmost_);
 
-    /* Unlinking a leaf */
-    if(internal->is_leaf()) {
-        if(internal_parent->left == internal) {
-            internal_parent->left = internal->left;
-            internal_parent->set_left_thread();
+    /* Dequeueing a leaf */
+    if(to_deq->is_leaf()) {
+        if(to_deq_parent->left == to_deq) {
+            to_deq_parent->left = to_deq->left;
+            to_deq_parent->set_left_thread();
         }
         else {
-            internal_parent->right = internal->right;
-            internal_parent->set_right_thread();
+            to_deq_parent->right = to_deq->right;
+            to_deq_parent->set_right_thread();
         }
     }
-    /* 2 children, replace internal with descendant and unlink the former */
-    else if(internal->has_left_child() && internal->has_right_child()) {
-        if(descendant->has_left_child()) {
-            if(descendant_parent->left == descendant)
-                descendant_parent->left = descendant->left;
-            else
-                descendant_parent->right = descendant->left;
+    /* 2 children, replace to_deq with descendant and unlink the former */
+    else if(to_deq->has_left_child() && to_deq->has_right_child()) {
+
+        if(descendant_parent->left == descendant) { /* equiv. to to_deq == descendant_parent */
+            to_deq->left = descendant->left;
+
+            /* Set to_deq left thread if descendant left thread is set */
+            to_deq->thread |= (descendant->thread & impl::LEFT);
         }
-        /* descendant is left child of internal, make descendant_parent->left point to
-         * descendant's left and make it a thread. */
-        else if(descendant_parent->left == descendant) {
-            descendant_parent->left = descendant->left;
-            descendant_parent->set_left_thread();
-        }
-        /* descendant is right child of its parent, descendant->right should still point to 
-         * descendant but should be marked as a thread */
+        else if(descendant->has_left_child())
+            descendant_parent->right = descendant->left;
+
+        /* descendant is leaf and descendant_parent == to_deq */
         else
             descendant_parent->set_right_thread();
 
-        /* Make sure descendant matches internal */
-        descendant->thread = internal->thread;
-        descendant->color  = internal->color;
-        descendant->left   = internal->left;
-        descendant->right  = internal->right;
+        /* Make sure descendant matches to_deq */
+        descendant->thread = to_deq->thread;
+        descendant->color  = to_deq->color;
+        descendant->left   = to_deq->left;
+        descendant->right  = to_deq->right;
 
-        successor(internal)->left = descendant;
+        auto* succ = successor(to_deq);
+        if(succ != header_)
+            succ->left = descendant;
 
         /* Replace */
-        if(internal_parent->left == internal)
-            internal_parent->left = descendant;
+        if(to_deq_parent->left == to_deq)
+            to_deq_parent->left = descendant;
         else
-            internal_parent->right = descendant;
+            to_deq_parent->right = descendant;
     }
-    /* Node to unlink has exactly 1 child */
+    /* Node to dequeue has exactly 1 child */
     else {
-        node_type* child = internal->has_left_child() ? internal->left : internal->right;
+        node_type* child = to_deq->has_left_child() ? to_deq->left : to_deq->right;
+
         /* Avoid color voilations */
-        child->color = internal->color;
+        child->color = to_deq->color;
         
-        if(internal_parent->left == internal)
-            internal_parent->left = child;
+        if(to_deq_parent->left == to_deq)
+            to_deq_parent->left = child;
         else
-            internal_parent->right = child;
+            to_deq_parent->right = child;
 
-        node_type *pred = predecessor(internal), *succ = successor(internal);
+        node_type *pred = predecessor(to_deq), *succ = successor(to_deq);
 
-        if(internal->has_left_child())
+        if(to_deq->has_left_child())
             pred->right = succ;
         else
             succ->left = pred;
     }
 
-    return internal;
+    return to_deq;
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename T>
 std::pair<typename rbtree<Value, Compare, Allocator>::iterator, bool> 
 rbtree<Value, Compare, Allocator>::insert(T&& value, node_type* current) {
-    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
-    auto val_rel = insert_position(value, current, parent, grandparent, great_grandparent);
+
+    node_type *parent = header_, *grandparent = header_, *great_grandparent = header_;
+
+    auto relation = insert_position(value, current, parent, grandparent, great_grandparent);
     
-    if(val_rel == ValueRelation::Equal)
+    if(relation == ValueRelation::Equal)
         return {iterator{this, current}, false};
-    node_type* new_node = allocate(std::forward<T>(value), nullptr, nullptr, Color::Red, impl::LEAF);
 
-    node_type* node = enqueue_node(new_node, dir_from_value_rel(val_rel),
-                                   current, parent, grandparent, great_grandparent);
+    node_type* new_node = allocate_node(std::forward<T>(value), nullptr, nullptr, 
+                                        Color::Red, impl::LEAF);
 
-    
+    node_type* node = enqueue_node(new_node, dir_from_value_rel(relation), current, 
+                                   parent, grandparent, great_grandparent);
+
     return {iterator{this, node}, true};
 }
 
@@ -1806,22 +1879,27 @@ std::pair<typename rbtree<Value, Compare, Allocator>::iterator, bool>
 rbtree<Value, Compare, Allocator>::emplace(node_type* current, Args&&... args) {
     using zeroth_type = impl::remove_cvref_t<impl::nth_type_t<0, Args...>>;
 
-    node_type *parent = header_, *grandparent = null_node_, *great_grandparent = null_node_;
+    node_type *parent = header_, *grandparent = header_, *great_grandparent = header_;
 
     node_type* new_node;
 
-    if constexpr(sizeof...(Args) == 1 && std::is_same_v<zeroth_type, value_type>)
-        new_node = allocate(std::forward<Args>(args)..., nullptr, nullptr, Color::Red, impl::LEAF);
-    else
-        new_node = allocate(value_type{std::forward<Args>(args)...}, nullptr, nullptr, Color::Red, impl::LEAF);
+    if constexpr(sizeof...(Args) == 1 && std::is_same_v<zeroth_type, value_type>) {
+        new_node = allocate_node(std::forward<Args>(args)..., nullptr, nullptr, 
+                                 Color::Red, impl::LEAF);
+    }
+    else {
+        new_node = allocate_node(value_type{std::forward<Args>(args)...}, nullptr, nullptr, 
+                                 Color::Red, impl::LEAF);
+    }
     
-    ValueRelation val_rel = insert_position(*new_node, current, parent, grandparent, great_grandparent);
-    if(val_rel == ValueRelation::Equal) {
+    ValueRelation relation = insert_position(*new_node, current, parent, grandparent, 
+                                              great_grandparent);
+    if(relation == ValueRelation::Equal) {
         allocator_.deallocate(new_node, 1u);
         return {iterator{this, current}, false};    
     }
 
-    node_type* node = enqueue_node(new_node, dir_from_value_rel(val_rel),
+    node_type* node = enqueue_node(new_node, dir_from_value_rel(relation),
                                    current, parent, grandparent, great_grandparent);
 
     return {iterator{this, node}, true};
@@ -1831,7 +1909,10 @@ rbtree<Value, Compare, Allocator>::emplace(node_type* current, Args&&... args) {
 template <typename Value, typename Compare, typename Allocator>
 typename rbtree<Value, Compare, Allocator>::size_type
 rbtree<Value, Compare, Allocator>::erase(value_type const& value, node_type* current) {
-    node_type *parent = header_, *grandparent = null_node_, *sibling = null_node_, *found = nullptr, *found_parent = nullptr;
+    using impl::equals;
+
+    node_type *parent = header_, *grandparent = header_, *sibling = header_;
+    node_type *found = nullptr, *found_parent = nullptr;
     
     Direction dir;
     
@@ -1840,41 +1921,44 @@ rbtree<Value, Compare, Allocator>::erase(value_type const& value, node_type* cur
         
         /* Ensure node to remove is red */
         if(current->color == Color::Black && link(current, dir)->color == Color::Black) {
-            balance_during_remove(dir, current, parent, grandparent, sibling);
+            recolor_remove(dir, current, parent, grandparent, sibling);
 
-            /* If found is either the current or parent, rotations during recoloring may introduce
-             * a node between found_parent and found. If this happens, move found_parent down one step */
-            if(found_parent && found_parent->right != found && found_parent->left != found)
-                found_parent = link(found_parent, static_cast<Direction>(found->value() > found_parent->value()));
+            /* Ensure rotations haven't separated found and found_parent */
+            if(found_parent && found_parent->right != found && found_parent->left != found) {
+                if(found_parent == header_)
+                    found_parent = header_->right;
+                else 
+                    found_parent = link(found_parent, static_cast<Direction>(found->value() > found_parent->value()));
+            }
         }
 
         /* Correct node found, store and keep moving down */
-        if(!compare_(current->value(), value) && !compare_(current->value(), value)) {
+        if(!found && equals<Compare>(current->value(), value)) {
             found = current;
             found_parent = parent;
         }
         
-        /* current's link in direction dir is a thread*/
-        if(link(current, dir) == null_node_)
+        if(link(current, dir) == header_)
             break;
 
-        /* Move down */
         grandparent = parent;
-        parent = current;
-        sibling = link(current, !dir);
-        current = link(current, dir);
+        parent      = current;
+        sibling     = link(current, !dir);
+        current     = link(current, dir);
     } 
-    size_type num_deleted = 0u;
+
+    size_type deleted = 0u;
+
     if(found) {
         allocator_.deallocate(dequeue_node(found, found_parent, current, parent), 1u);
         --size_;
-        ++num_deleted;
+        ++deleted;
     }
 
     if(!empty())
         header_->right->color = Color::Black;
 
-    return num_deleted;
+    return deleted;
 }
 
 template <typename Value, typename Compare, typename Allocator>
@@ -1932,39 +2016,98 @@ rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value, node_typ
             
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-int rbtree<Value, Compare, Allocator>::assert_properties(node_type* t) const {
+int rbtree<Value, Compare, Allocator>::assert_properties_ok(node_type* t) const {
     node_type *lh = link(t, Direction::Left), *rh = link(t, Direction::Right);
     
     if(t->color == Color::Red) {
         if(lh->color == Color::Red || rh->color == Color::Red)
-            throw color_violation_exception{"Node " + std::to_string(t->value()) + " is red and has red children\n"};
+            throw color_violation_exception{"Node " + std::to_string(t->value()) + 
+                                            " is red and has red children\n"};
     }
-    if((lh != null_node_ && !compare_(lh->value(), t->value())) || (rh != null_node_ && (compare_(rh->value(), t->value()) || (compare_(rh->value(), t->value()) && compare_(t->value(), rh->value())))))
-        throw bst_property_violation_exception{"BST property violated by node " + std::to_string(t->value()) + " and its childen " + std::to_string(t->left->value()) + " and " + std::to_string(t->right->value())};
+
+    if(lh != header_ && !compare_(lh->value(), t->value())) {
+        throw bst_property_violation_exception{"Bst property violated by node " + 
+                                                std::to_string(t->value()) + 
+                                               " and its left child " + 
+                                                std::to_string(lh->value()) + "\n"};
+    }
+    if(rh != header_ && !compare_(t->value(), rh->value())) {
+        throw bst_property_violation_exception{"BST property violated by node " +
+                                                std::to_string(t->value()) + 
+                                               " and its right child " + 
+                                                std::to_string(t->right->value())};
+    }
 
     int height_contribution = t->color == Color::Black ? 1 : 0;
 
     if(t->has_left_child() && t->has_right_child()) {
-        int left_height = assert_properties(t->left);
-        int right_height = assert_properties(t->right);
+        int left_height = assert_properties_ok(t->left);
+        int right_height = assert_properties_ok(t->right);
 
         if(left_height != right_height)
-            throw height_violation_exception{"Node " + std::to_string(t->value()) + ":\nleft height: " + std::to_string(left_height) + "\nright height: " + std::to_string(right_height) + "\n"};
+            throw height_violation_exception{"Node " + std::to_string(t->value()) + 
+                                             ":\nleft height: " + std::to_string(left_height) + 
+                                             "\nright height: " + std::to_string(right_height) + 
+                                             "\n"};
 
         return left_height + height_contribution;
     }
     else if(!t->is_leaf()) {
         if(!t->has_left_child()) {
-            if(assert_properties(t->right) != -1)
-                throw height_violation_exception{"Node " + std::to_string(t->value()) + "'s right subtree has a black height larger than the left\n"};
+            if(assert_properties_ok(t->right) != -1)
+                throw height_violation_exception{"Node " + std::to_string(t->value()) + 
+                                "'s right subtree has a black height larger than the left\n"};
         }
         else if(!t->has_right_child()) {
-            if(assert_properties(t->left) != -1)
-                throw height_violation_exception{"Node " + std::to_string(t->value()) + "'s left subtree has a black height larger then the right\n"};
+            if(assert_properties_ok(t->left) != -1)
+                throw height_violation_exception{"Node " + std::to_string(t->value()) + 
+                                "'s left subtree has a black height larger then the right\n"};
         }
     }
     return height_contribution - 1;
 }
+
+template <typename Value, typename Compare, typename Allocator>
+int rbtree<Value, Compare, Allocator>::assert_leftmost_ok() const {
+    using namespace impl::debug;
+
+    if(empty()) {
+        return 0;
+    }
+
+    auto* ll = leftmost(header_->right);
+
+    int flags = 0;
+    if(leftmost_->has_left_child())
+        flags |= THREAD_ERROR;
+    if(leftmost_->left != header_)
+        flags |= LINK_ERROR;
+    if(leftmost_ != ll)
+        flags |= NODE_ERROR;
+
+    return flags;
+}
+
+template <typename Value, typename Compare, typename Allocator>
+int rbtree<Value, Compare, Allocator>::assert_rightmost_ok() const {
+    using namespace impl::debug;
+
+    if(empty())
+        return 0;
+
+    auto* rr = rightmost(header_->right);
+
+    int flags = 0;
+    if(rightmost_->has_right_child())
+        flags |= THREAD_ERROR;
+    if(rightmost_->right != header_)
+        flags |= LINK_ERROR;
+    if(rightmost_ != rr)
+        flags |= NODE_ERROR;
+
+    return flags;
+}
+
 #endif
 
 #ifdef TRBT_DEBUG
@@ -1978,15 +2121,58 @@ namespace impl {
             HintedEmplace
         };
 
+        template <typename Tree>
+        void test_dmost(Tree const& tree, Direction dir) {
+            int flags;
+            std::string msg{"Assertion of "};
+            std::string direction;
+
+            if(dir == Direction::Left) {
+                flags = tree.assert_leftmost_ok();
+                direction = "left";
+            }
+            else {
+                flags = tree.assert_rightmost_ok();
+                direction = "right";
+            }
+
+            msg += direction + "most encountered the following issues:\n";
+
+            if(thread_error(flags)) 
+                msg += "\t" + direction + " thread not set\n";
+            if(link_error(flags))
+                msg += "\t" + direction + " does not point to header_\n";
+            if(node_error(flags))
+                msg += "\t" + direction + "most_ is not the " + direction + "most node in tree\n";
+
+            if(flags)
+                throw thread_link_exception{std::move(msg)};
+        }
+
+        template <InsertionMethod method>
+        std::string insertion_method() {
+            if constexpr(method == InsertionMethod::InsertRange)
+                return "insert range";
+            else if constexpr(method == InsertionMethod::HintedInsert)
+                return "hinted insert";
+            else if constexpr(method == InsertionMethod::Insert)
+                return "insert";
+            else if constexpr(method == InsertionMethod::Emplace)
+                return "emplace";
+
+            return "hinted emplace";
+        }
+
         template <InsertionMethod method = InsertionMethod::Insert>
         inline void run_test(int test_size = 2000) {
-            std::cout << "Running test with size " << test_size << std::endl;
+            std::cout << "Running [" << insertion_method<method>() 
+                      <<  "] test with size " << test_size << "\n";
             std::random_device rd;
             std::mt19937 mt{std::random_device{}()};
             std::vector<int> vals(test_size);
 
             {
-                std::uniform_int_distribution<> dis{0, 10 * test_size};
+                std::uniform_int_distribution<> dis{-10 * test_size, 10 * test_size};
 
                 for(auto i = 0; i < test_size; i++)
                     vals.push_back(dis(mt));
@@ -1994,10 +2180,13 @@ namespace impl {
 
             vals.erase(std::unique(std::begin(vals), std::end(vals)), std::end(vals));
 
-            rbtree<int> rbt{};
+            rbtree rbt{1,2,3};
+            
             if constexpr(method == InsertionMethod::InsertRange) {
                 rbt.insert(std::begin(vals), std::end(vals));
-                rbt.assert_properties();
+                rbt.assert_properties_ok();
+                test_dmost(rbt, Direction::Left);
+                test_dmost(rbt, Direction::Right);
             }
             else {
                 for(auto const& v : vals) {
@@ -2013,9 +2202,14 @@ namespace impl {
                         else
                             rbt.emplace_hint(it, v);
                     }
-                    rbt.assert_properties();
+                    rbt.assert_properties_ok();
+                    test_dmost(rbt, Direction::Left);
+                    test_dmost(rbt, Direction::Right);
                 }
             }
+            rbt.assert_properties_ok();
+            test_dmost(rbt, Direction::Left);
+            test_dmost(rbt, Direction::Right);
 
             for(auto const& v : vals) {
                 if(!rbt.contains(v))
@@ -2026,9 +2220,10 @@ namespace impl {
                 std::uniform_int_distribution<> dis{0, static_cast<int>(vals.size()) - 1};
                 auto rand = dis(mt);
                 auto val = vals[rand];
-
                 rbt.erase(val);
-                rbt.assert_properties();
+                rbt.assert_properties_ok();
+                test_dmost(rbt, Direction::Left);
+                test_dmost(rbt, Direction::Right);
 
                 vals.erase(std::remove_if(std::begin(vals), std::end(vals), [val](int v) { 
                     return val == v; 
@@ -2040,7 +2235,7 @@ namespace impl {
                 }
             }
             
-            std::cout << "Test completed" << std::endl;
+            std::cout << "Test completed\n\n";
         }
     } /* namespace debug */
 } /* namespace impl */
