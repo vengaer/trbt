@@ -1,13 +1,21 @@
 #define TRBT_DEBUG
 #include "trbt.h"
 #include <iostream>
+#include <random>
 
 template <trbt::impl::debug::InsertionMethod method>
 void run(int iters) {
     using namespace trbt::impl::debug;
+
+    int constexpr min_size = 0;
+    int constexpr max_size = 5000;
+    
+    std::mt19937 mt{std::random_device{}()};
+    std::uniform_int_distribution<> dist{min_size, max_size};
+
     for(int i = 0; i < iters; i++) {
         std::cout << "Iteration " << i << "\n";
-        run_test<method>();
+        run_test<method>(dist(mt));
     }
 }
 
