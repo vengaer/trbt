@@ -26,10 +26,6 @@ namespace trbt {
     class rbtree;
 
 namespace impl {
-    inline unsigned char constexpr RIGHT = 0x1;
-    inline unsigned char constexpr LEFT  = 0x2;
-    inline unsigned char constexpr LEAF  = 0x3;
-
     template <typename, typename, typename = void>
     struct is_comparable : std::false_type { };
 
@@ -305,53 +301,63 @@ namespace impl {
     struct node {
         static_assert(!std::is_const_v<std::remove_reference_t<Value>>, 
                       "Value type should never be const");
+    
+        static unsigned char constexpr RIGHT_THREAD = 0x1;
+        static unsigned char constexpr LEFT_THREAD  = 0x2;
+        static unsigned char constexpr SENTINEL     = 0x4;
+        static unsigned char constexpr LEAF         = LEFT_THREAD | RIGHT_THREAD;
 
         alignas(Value) unsigned char storage[sizeof(Value)];
         node *left, *right;
         Color color;
-        unsigned char thread;
+        unsigned char flags;
         
         template <typename T = Value, typename = disable_if_same_t<T, node>>
         node(T&& value, node* ln, node* rn, Color col, unsigned char threaded) 
-            : left{ln}, right{rn}, color{col}, thread{threaded} { 
+            : left{ln}, right{rn}, color{col}, flags(threaded & LEAF) { 
             new (storage) Value(std::forward<T>(value));
         }
 
         node(node* ln, node* rn, Color col, unsigned char threaded)
-            : left{ln}, right{rn}, color{col}, thread{threaded} { }
+            : left{ln}, right{rn}, color{col}, flags((threaded & LEAF) | SENTINEL) { }
 
         node(node const& other) 
-            : left{other.left}, right{other.right}, color{other.color}, thread{other.thread} {
-            new (storage) Value(other.value());
+            : left{other.left}, right{other.right}, color{other.color}, flags{other.flags} {
+            if(!(other.flags & SENTINEL))
+                new (storage) Value(other.value());
         }
     
         node(node&& other) 
-            : left{other.left}, right{other.right}, color{other.color}, thread{other.thread} {
-            new (storage) Value(std::move(other.value()));
+            : left{other.left}, right{other.right}, color{other.color}, flags{other.flags} {
+            if(!(other.flags & SENTINEL))
+                new (storage) Value(std::move(other.value()));
         }
 
         node& operator=(node const& other) & {
-            new (storage) Value(other.value());
+            if(!(other.flags & SENTINEL))
+                new (storage) Value(other.value());
             left   = other.left;
             right  = other.right;
             color  = other.color;
-            thread = other.thread;
+            flags  = other.flags;
             
             return *this;
         }
 
         node& operator=(node&& other) & {
-            new (storage) Value(std::move(other.value));
+            if(!(other.flags & SENTINEL))
+                new (storage) Value(std::move(other.value()));
             left   = other.left;
             right  = other.right;
             color  = other.color;
-            thread = other.thread;
+            flags  = other.flags;
             
             return *this;
         }
 
         ~node() {
-            reinterpret_cast<Value*>(storage)->~Value();
+            if(!(flags & SENTINEL))
+                reinterpret_cast<Value*>(storage)->~Value();
         }
 
         Value& value() {
@@ -363,31 +369,31 @@ namespace impl {
         }
 
         bool is_leaf() const {
-            return thread == (LEFT | RIGHT);
+            return (flags & LEAF) == LEAF;
         }
     
         bool has_left_child() const {
-            return !(thread & LEFT);
+            return !(flags & LEFT_THREAD);
         }
 
         bool has_right_child() const {
-            return !(thread & RIGHT);
+            return !(flags & RIGHT_THREAD);
         }
     
         void set_left_thread() {
-            thread |= LEFT;
+            flags |= LEFT_THREAD;
         }
 
         void set_right_thread() {
-            thread |= RIGHT;
+            flags |= RIGHT_THREAD;
         }
 
         void unset_left_thread() {
-            thread &= ~LEFT;
+            flags &= ~LEFT_THREAD;
         }
 
         void unset_right_thread() {
-            thread &= ~RIGHT;
+            flags &= ~RIGHT_THREAD;
         }
 
     };
@@ -654,9 +660,9 @@ class rbtree {
         rbtree& operator=(rbtree const& other) &;
         rbtree& operator=(rbtree&& other) &;
 
-        bool empty() const;
-        size_type size() const noexcept;
-        size_type max_size() const noexcept;
+        inline bool empty() const;
+        inline size_type size() const noexcept;
+        inline size_type max_size() const noexcept;
 
         void clear() noexcept;
 
@@ -749,8 +755,8 @@ class rbtree {
         key_compare compare_{};
 
         template <typename T = value_type>
-        node_type* allocate_node(T&& value, node_type* ln, node_type* rn, Color col, unsigned char thread);
-        node_type* allocate_node(node_type* ln, node_type* rn, Color col, unsigned char thread);
+        inline node_type* allocate_node(T&& value, node_type* ln, node_type* rn, Color col, unsigned char thread);
+        inline node_type* allocate_node(node_type* ln, node_type* rn, Color col, unsigned char thread);
 
         void init(unsigned char thread);
         void clear(node_type* current) noexcept;
@@ -762,15 +768,15 @@ class rbtree {
         node_type* link(node_type* node, Direction dir) const;
         static node_type* leftmost(node_type* root);
         static node_type* rightmost(node_type* root);
-        static node_type* successor(node_type* node);
-        static node_type* predecessor(node_type* node);
+        static inline node_type* successor(node_type* node);
+        static inline node_type* predecessor(node_type* node);
 
         static node_type* left_rotate(node_type* root, node_type* parent);
         static node_type* right_rotate(node_type* root, node_type* parent);
-        static node_type* left_right_rotate(node_type* root, node_type* parent);
-        static node_type* right_left_rotate(node_type* root, node_type* parent);
-        static node_type* left_left_rotate(node_type* root, node_type* parent);
-        static node_type* right_right_rotate(node_type* root, node_type* parent);
+        static inline node_type* left_right_rotate(node_type* root, node_type* parent);
+        static inline node_type* right_left_rotate(node_type* root, node_type* parent);
+        static inline node_type* left_left_rotate(node_type* root, node_type* parent);
+        static inline node_type* right_right_rotate(node_type* root, node_type* parent);
 
         void recolor_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent);
         void recolor_remove(Direction dir, node_type* current, node_type*& parent, node_type* grandparent, node_type* sibling);
@@ -849,34 +855,34 @@ rbtree(Pair<Key, Mapped>...)
 /* Member functions */
 template <typename Value, typename Compare, typename Allocator>
 rbtree<Value, Compare, Allocator>::rbtree() {
-    init(impl::LEAF);
+    init(node_type::LEAF);
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename T, typename>
 rbtree<Value, Compare, Allocator>::rbtree(T&& value) {
-    init(impl::LEFT);
-    sentinel_->right = allocate_node(std::forward<T>(value), sentinel_, sentinel_, Color::Black, impl::LEAF);
+    init(node_type::LEFT_THREAD);
+    sentinel_->right = allocate_node(std::forward<T>(value), sentinel_, sentinel_, Color::Black, node_type::LEAF);
     leftmost_ = rightmost_ = sentinel_->right;
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename... Args, typename>
 rbtree<Value, Compare, Allocator>::rbtree(Args&&... values) {
-    init(impl::LEAF);
+    init(node_type::LEAF);
     (insert(std::forward<Args>(values)), ...);
 }
 
 template <typename Value, typename Compare, typename Allocator>
 template <typename InputIt, typename>
 rbtree<Value, Compare, Allocator>::rbtree(InputIt first, InputIt last) {
-    init(impl::LEAF);
+    init(node_type::LEAF);
     insert(first, last);
 }
 
 template <typename Value, typename Compare, typename Allocator>
 rbtree<Value, Compare, Allocator>::rbtree(rbtree const& other) {
-    init(other.sentinel_->thread);
+    init(other.sentinel_->flags);
     size_ = other.size_;
     if(!other.sentinel_->is_leaf()) 
         sentinel_->right = clone(sentinel_, sentinel_, other.sentinel_->right);
@@ -888,7 +894,7 @@ rbtree<Value, Compare, Allocator>::rbtree(rbtree&& other)
       size_{other.size_} {
 
     /* Reset other to empty state */
-    other.init(impl::LEAF);
+    other.init(node_type::LEAF);
     other.size_ = 0u;
 }
 
@@ -912,7 +918,7 @@ rbtree<Value, Compare, Allocator>::operator=(rbtree const& other) & {
 template <typename Value, typename Compare, typename Allocator>
 rbtree<Value, Compare, Allocator>& 
 rbtree<Value, Compare, Allocator>::operator=(rbtree&& other) & {
-    init(impl::LEAF);
+    init(node_type::LEAF);
     std::swap(sentinel_, other.sentinel_);
     std::swap(size_, other.size_);
     std::swap(leftmost_, other.leftmost_);
@@ -995,10 +1001,10 @@ rbtree<Value, Compare, Allocator>::insert(const_iterator hint, T&& value) {
     bool lt_parent = compare_(value, hint.current_->value());
 
     if(hint != end() && suitable_parent && lt_parent) {
-        if(equals<Compare>(value, hint.current_->left->value()))
+        if(equals<key_compare>(value, hint.current_->left->value()))
             return iterator{this, hint.current_->left};;
 
-        node_type* node = allocate_node(std::forward<T>(value), nullptr, nullptr, Color::Red, impl::LEAF);
+        node_type* node = allocate_node(std::forward<T>(value), nullptr, nullptr, Color::Red, node_type::LEAF);
         enqueue_as_left_child(node, hint.current_);
 
         return iterator{this, node};
@@ -1035,7 +1041,7 @@ rbtree<Value, Compare, Allocator>::emplace_hint(const_iterator hint, Args&&... a
         if(equals<Compare>(value, hint.current_->left->value()))
             return iterator{this, hint.current_->left};
 
-        node_type* node = allocate_node(std::move(value), nullptr, nullptr, Color::Red, impl::LEAF);
+        node_type* node = allocate_node(std::move(value), nullptr, nullptr, Color::Red, node_type::LEAF);
         enqueue_as_left_child(node, hint.current_);
 
         return iterator{this, node};
@@ -1279,7 +1285,7 @@ bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, All
     auto right_it = std::cbegin(right);
 
     while(left_it != std::cend(left) && right_it != std::cend(right))
-        if(!equals<Comp_>(*left_it++, *right_it++))
+        if(!equals<impl::key_compare_t<impl::remove_cvref_t<Val_>, Comp_>>(*left_it++, *right_it++))
             return false;
 
     return true;
@@ -1404,7 +1410,7 @@ template <typename Value, typename Compare, typename Allocator>
 typename rbtree<Value, Compare, Allocator>::node_type* 
 rbtree<Value, Compare, Allocator>::clone(node_type* pred, node_type* succ, node_type* other) {
 
-    node_type* node = allocate_node(other->value(), pred, succ, other->color, other->thread);
+    node_type* node = allocate_node(other->value(), pred, succ, other->color, other->flags);
 
     if(other->has_left_child())
         node->left = clone(pred, node, other->left);
@@ -1624,7 +1630,7 @@ template <typename T>
 typename rbtree<Value, Compare, Allocator>::node_type*
 rbtree<Value, Compare, Allocator>::insert_empty(T&& value) {
     sentinel_->right = allocate_node(std::forward<T>(value), sentinel_, sentinel_, 
-                                   Color::Black, impl::LEAF);
+                                   Color::Black, node_type::LEAF);
     sentinel_->unset_right_thread();
 
     ++size_;
@@ -1639,7 +1645,7 @@ template <typename... Args>
 typename rbtree<Value, Compare, Allocator>::node_type*
 rbtree<Value, Compare, Allocator>::emplace_empty(Args&&... args) {
     sentinel_->right = allocate_node(value_type{std::forward<Args>(args)...}, sentinel_, sentinel_, 
-                                   Color::Black, impl::LEAF);
+                                   Color::Black, node_type::LEAF);
     sentinel_->unset_right_thread();
 
     ++size_;
@@ -1804,7 +1810,7 @@ rbtree<Value, Compare, Allocator>::dequeue_node(node_type* to_deq, node_type* to
             to_deq->left = descendant->left;
 
             /* Set to_deq left thread if descendant left thread is set */
-            to_deq->thread |= (descendant->thread & impl::LEFT);
+            to_deq->flags |= (descendant->flags & node_type::LEFT_THREAD);
         }
         else if(descendant->has_left_child())
             descendant_parent->right = descendant->left;
@@ -1814,7 +1820,7 @@ rbtree<Value, Compare, Allocator>::dequeue_node(node_type* to_deq, node_type* to
             descendant_parent->set_right_thread();
 
         /* Make sure descendant matches to_deq */
-        descendant->thread = to_deq->thread;
+        descendant->flags = to_deq->flags;
         descendant->color  = to_deq->color;
         descendant->left   = to_deq->left;
         descendant->right  = to_deq->right;
@@ -1865,7 +1871,7 @@ rbtree<Value, Compare, Allocator>::insert(T&& value, node_type* current) {
         return {iterator{this, current}, false};
 
     node_type* new_node = allocate_node(std::forward<T>(value), nullptr, nullptr, 
-                                        Color::Red, impl::LEAF);
+                                        Color::Red, node_type::LEAF);
 
     node_type* node = enqueue_node(new_node, dir_from_value_rel(relation), current, 
                                    parent, grandparent, great_grandparent);
@@ -1885,11 +1891,11 @@ rbtree<Value, Compare, Allocator>::emplace(node_type* current, Args&&... args) {
 
     if constexpr(sizeof...(Args) == 1 && std::is_same_v<zeroth_type, value_type>) {
         new_node = allocate_node(std::forward<Args>(args)..., nullptr, nullptr, 
-                                 Color::Red, impl::LEAF);
+                                 Color::Red, node_type::LEAF);
     }
     else {
         new_node = allocate_node(value_type{std::forward<Args>(args)...}, nullptr, nullptr, 
-                                 Color::Red, impl::LEAF);
+                                 Color::Red, node_type::LEAF);
     }
     
     ValueRelation relation = insert_position(*new_node, current, parent, grandparent, 
@@ -1917,7 +1923,7 @@ rbtree<Value, Compare, Allocator>::erase(value_type const& value, node_type* cur
     Direction dir;
     
     while(true) {
-        dir = static_cast<Direction>(value > current->value());
+        dir = static_cast<Direction>(compare_(current->value(), value));
         
         /* Ensure node to remove is red */
         if(current->color == Color::Black && link(current, dir)->color == Color::Black) {
@@ -1928,12 +1934,13 @@ rbtree<Value, Compare, Allocator>::erase(value_type const& value, node_type* cur
                 if(found_parent == sentinel_)
                     found_parent = sentinel_->right;
                 else 
-                    found_parent = link(found_parent, static_cast<Direction>(found->value() > found_parent->value()));
+                    found_parent = link(found_parent, static_cast<Direction>(
+                                           compare_(found_parent->value(), found->value())));
             }
         }
 
         /* Correct node found, store and keep moving down */
-        if(!found && equals<Compare>(current->value(), value)) {
+        if(!found && equals<key_compare>(current->value(), value)) {
             found = current;
             found_parent = parent;
         }
