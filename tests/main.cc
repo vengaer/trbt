@@ -3,12 +3,14 @@
 #include <iostream>
 #include <random>
 
-template <trbt::impl::debug::InsertionMethod method>
+using namespace trbt::impl::debug;
+
+template <InsertionMethod method>
 void run(int iters) {
     using namespace trbt::impl::debug;
 
     int constexpr min_size = 0;
-    int constexpr max_size = 5000;
+    int constexpr max_size = 1500;
     
     std::mt19937 mt{std::random_device{}()};
     std::uniform_int_distribution<> dist{min_size, max_size};
@@ -20,9 +22,7 @@ void run(int iters) {
 }
 
 int main() {
-    using namespace trbt::impl::debug;
-
-    int constexpr per_method_iters = 2000;
+    int constexpr per_method_iters = 1000;
     int total = 0;
 
 
