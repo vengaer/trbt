@@ -1,187 +1,438 @@
-#define TRBT_DEBUG
-#include "trbt.h"
-#include <iostream>
+#include "trbt_test_framework.h"
 #include <random>
-
-using namespace trbt::impl;
-using namespace trbt::impl::debug;
-
-enum class InsertionMethod {
-    Insert,
-    InsertRange,
-    HintedInsert,
-    Emplace,
-    HintedEmplace
-};
-
-template <typename Tree>
-void test_dmost(Tree const& tree, Direction dir);
-
-template <InsertionMethod method>
-void run_randomized(int iters);
-
-template <InsertionMethod method>
-std::string insertion_method();
-
-template <InsertionMethod method>
-void run_test(int test_size);
-
-template <InsertionMethod method>
-void run_randomized(int iters);
+#include <sstream>
+#include <utility>
 
 int main() {
-    int constexpr per_method_iters = 1000;
-    int total = 0;
+    using namespace trbt;
+    std::mt19937 mt{std::random_device{}()};
+    std::uniform_int_distribution<> iter_dis(0, 1000);
+    std::uniform_int_distribution<> test_size_dis(0, 1500);
+    
+    rbtree<int> int_tree;
+    rbtree<std::string> str_tree;
+    rbtree<std::pair<int, double>> pair_tree;
+    
+    /* --------------- */
+    /* Insert test int */
+    /* --------------- */
+    auto iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("INSERT (int)", test_size, i, iters); 
+        
+        auto vec = test::generate_int_vec(test_size);
+        test::insert(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
 
-    run_randomized<InsertionMethod::Insert>(per_method_iters);
-    total += per_method_iters;
+        test::contains(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
 
-    run_randomized<InsertionMethod::HintedInsert>(per_method_iters);
-    total += per_method_iters;
+        test::erase(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+    }
 
-    run_randomized<InsertionMethod::InsertRange>(per_method_iters);
-    total += per_method_iters;
+    /* ---------------------- */
+    /* Hinted insert test int */
+    /* ---------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("HINTED INSERT (int)", test_size, i, iters); 
+        
+        auto vec = test::generate_int_vec(test_size);
+        test::hinted_insert(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
 
-    run_randomized<InsertionMethod::Emplace>(per_method_iters);
-    total += per_method_iters;
+        test::contains(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
 
-    run_randomized<InsertionMethod::HintedEmplace>(per_method_iters);
-    total += per_method_iters;
+        test::erase(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+    }
 
-    std::cout << "Finished " << total << " tests successfully\n";
+    /* --------------------- */
+    /* Insert range test int */
+    /* --------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("INSERT RANGE (int)", test_size, i, iters); 
+        
+        auto vec = test::generate_int_vec(test_size);
+        test::insert_range(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+
+        test::contains(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+
+        test::erase(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+    }
+
+    /* ---------------- */
+    /* Emplace test int */
+    /* ---------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("EMPLACE (int)", test_size, i, iters); 
+        
+        auto vec = test::generate_int_vec(test_size);
+        test::emplace(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+
+        test::contains(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+
+        test::erase(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+    }
+
+    /* ----------------------- */
+    /* Hinted emplace test int */
+    /* ----------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("HINTED EMPLACE (int)", test_size, i, iters); 
+        
+        auto vec = test::generate_int_vec(test_size);
+        test::hinted_emplace(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+
+        test::contains(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+
+        test::erase(int_tree, vec, [](int i) {
+            return std::to_string(i);
+        });
+    }
+
+    /* ----------------------- */
+    /* Insert test std::string */
+    /* ----------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("INSERT (std::string)", test_size, i, iters); 
+        
+        auto vec = test::generate_string_vec(test_size);
+        test::insert(str_tree, vec, [](std::string const& str) {
+            return str;
+        });
+
+        test::contains(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::erase(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+    }
+
+
+    /* ----------------------------- */
+    /* Hined insert test std::string */
+    /* ----------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("HINTED INSERT (std::string)", test_size, i, iters); 
+        
+        auto vec = test::generate_string_vec(test_size);
+        test::hinted_insert(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::contains(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::erase(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+    }
+
+    /* ----------------------------- */
+    /* Insert range test std::string */
+    /* ----------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("INSERT RANGE (std::string)", test_size, i, iters); 
+        
+        auto vec = test::generate_string_vec(test_size);
+        test::insert_range(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::contains(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::erase(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+    }
+
+    /* ----------------------------- */
+    /* Emplace test std::string */
+    /* ----------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("EMPLACE (std::string)", test_size, i, iters); 
+        
+        auto vec = test::generate_string_vec(test_size);
+        test::emplace(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::contains(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::erase(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+    }
+
+    /* ------------------------------- */
+    /* Hinted emplace test std::string */
+    /* ------------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("EMPLACE (std::string)", test_size, i, iters); 
+        
+        auto vec = test::generate_string_vec(test_size);
+        test::hinted_emplace(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::contains(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+
+        test::erase(str_tree, vec, [](auto const& str) {
+            return str;
+        });
+    }
+    /* ---------------------------------- */
+    /* Insert test std::pair<int, double> */
+    /* ---------------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("INSERT (std::pair<int, double>)", test_size, i, iters); 
+        
+        auto vec = test::generate_pair_vec(test_size);
+        test::insert(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::contains(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::erase(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+    }
+
+
+    /* ----------------------------------------- */
+    /* Hinted insert test std::pair<int, double> */
+    /* ----------------------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("HINTED INSERT (std::pair<int, double>)", test_size, i, iters); 
+        auto vec = test::generate_pair_vec(test_size);
+        test::hinted_insert(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::contains(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::erase(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+    }
+
+    /* ---------------------------------------- */
+    /* Insert range test std::pair<int, double> */
+    /* ---------------------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("INSERT RANGE (std::pair<int, double>)", test_size, i, iters); 
+        auto vec = test::generate_pair_vec(test_size);
+        test::insert_range(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::contains(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::erase(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+    }
+
+    /* ----------------------------------- */
+    /* Emplace test std::pair<int, double> */
+    /* ----------------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("EMPLACE (std::pair<int, double>)", test_size, i, iters); 
+        auto vec = test::generate_pair_vec(test_size);
+        test::emplace(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::contains(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::erase(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+    }
+
+    /* ------------------------------------------ */
+    /* Hinted emplace test std::pair<int, double> */
+    /* ------------------------------------------ */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("HINTED EMPLACE (std::pair<int, double>)", test_size, i, iters); 
+        auto vec = test::generate_pair_vec(test_size);
+        test::hinted_emplace(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::contains(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::erase(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+    }
+
+    /* ---------------------------------------------- */
+    /* Emplace test std::pair<int, double>, piecewise */
+    /* ---------------------------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("EMPLACE (std::pair<int, double>, piecewise)", test_size, i, iters); 
+        auto vec = test::generate_int_vec(test_size);
+        std::vector<std::pair<int, double>> pvec(test_size);
+        std::transform(std::begin(vec), std::end(vec), std::begin(pvec), [](int i) {
+            return std::make_pair(i, double{});
+        });
+
+        test::pair_emplace(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::contains(pair_tree, pvec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::erase(pair_tree, pvec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+    }
+
+    /* ----------------------------------------------------- */
+    /* Hinted emplace test std::pair<int, double>, piecewise */
+    /* ----------------------------------------------------- */
+    iters = iter_dis(mt);
+    for(int i = 0; i < iters; i++) {
+        auto test_size = test_size_dis(mt);
+        test::print_heading("HINTED EMPLACE (std::pair<int, double>, piecewise)", test_size, i, iters); 
+        auto vec = test::generate_int_vec(test_size);
+        std::vector<std::pair<int, double>> pvec(test_size);
+        std::transform(std::begin(vec), std::end(vec), std::begin(pvec), [](int i) {
+            return std::make_pair(i, double{});
+        });
+
+        test::pair_hinted_emplace(pair_tree, vec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::contains(pair_tree, pvec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+
+        test::erase(pair_tree, pvec, [](auto const& pair) {
+            std::ostringstream ss;
+            ss << "{" << pair.first << ", " << pair.second << "}";
+            return ss.str();
+        });
+    }
 
     return 0;
-}
-
-template <typename Tree>
-void test_dmost(Tree const& tree, Direction dir) {
-    int flags;
-    std::string msg{"Assertion of "};
-    std::string direction;
-
-    if(dir == Direction::Left) {
-        flags = tree.assert_leftmost_ok();
-        direction = "left";
-    }
-    else {
-        flags = tree.assert_rightmost_ok();
-        direction = "right";
-    }
-
-    msg += direction + "most encountered the following issues:\n";
-
-    if(thread_error(flags)) 
-        msg += "\t" + direction + " thread not set\n";
-    if(link_error(flags))
-        msg += "\t" + direction + " does not point to sentinel_\n";
-    if(node_error(flags))
-        msg += "\t" + direction + "most_ is not the " + direction + "most node in tree\n";
-
-    if(flags)
-        throw thread_link_exception{std::move(msg)};
-}
-
-template <InsertionMethod method>
-std::string insertion_method() {
-    if constexpr(method == InsertionMethod::InsertRange)
-        return "insert range";
-    else if constexpr(method == InsertionMethod::HintedInsert)
-        return "hinted insert";
-    else if constexpr(method == InsertionMethod::Insert)
-        return "insert";
-    else if constexpr(method == InsertionMethod::Emplace)
-        return "emplace";
-
-    return "hinted emplace";
-}
-
-template <InsertionMethod method>
-void run_test(int test_size) {
-    using namespace trbt;
-    std::cout << "Running [" << insertion_method<method>() 
-              <<  "] test with size " << test_size << "\n";
-    std::mt19937 mt{std::random_device{}()};
-    std::vector<int> vals(test_size);
-
-    {
-        std::uniform_int_distribution<> dis{-10 * test_size, 10 * test_size};
-
-        for(auto i = 0; i < test_size; i++)
-            vals.push_back(dis(mt));
-    }
-
-    vals.erase(std::unique(std::begin(vals), std::end(vals)), std::end(vals));
-
-    rbtree rbt{1,2,3};
-    
-    if constexpr(method == InsertionMethod::InsertRange) {
-        rbt.insert(std::begin(vals), std::end(vals));
-        rbt.assert_properties_ok();
-        test_dmost(rbt, Direction::Left);
-        test_dmost(rbt, Direction::Right);
-    }
-    else {
-        for(auto const& v : vals) {
-            if constexpr(method == InsertionMethod::Insert)
-                rbt.insert(v);
-            else if constexpr(method == InsertionMethod::Emplace) {
-                rbt.emplace(v);
-            }
-            else {
-                auto it = rbt.upper_bound(v);   
-                if constexpr(method == InsertionMethod::HintedInsert)
-                    rbt.insert(it, v);
-                else
-                    rbt.emplace_hint(it, v);
-            }
-            rbt.assert_properties_ok();
-            test_dmost(rbt, Direction::Left);
-            test_dmost(rbt, Direction::Right);
-        }
-    }
-    rbt.assert_properties_ok();
-    test_dmost(rbt, Direction::Left);
-    test_dmost(rbt, Direction::Right);
-
-    for(auto const& v : vals) {
-        if(!rbt.contains(v))
-            throw value_retention_exception{std::to_string(v) + " not in tree\n"};
-    }
-
-    while(vals.size()) {
-        std::uniform_int_distribution<> dis{0, static_cast<int>(vals.size()) - 1};
-        auto rand = dis(mt);
-        auto val = vals[rand];
-        rbt.erase(val);
-        rbt.assert_properties_ok();
-        test_dmost(rbt, Direction::Left);
-        test_dmost(rbt, Direction::Right);
-
-        vals.erase(std::remove_if(std::begin(vals), std::end(vals), [val](int v) { 
-            return val == v; 
-        }), std::end(vals));
-
-        for(auto const& v : vals) {
-            if(!rbt.contains(v))
-                throw value_retention_exception{std::to_string(v) + " is not in tree\n"};
-        }
-    }
-    
-    std::cout << "Test completed\n\n";
-}
-
-template <InsertionMethod method>
-void run_randomized(int iters) {
-    using namespace trbt::impl::debug;
-
-    int constexpr min_size = 0;
-    int constexpr max_size = 1500;
-    
-    std::mt19937 mt{std::random_device{}()};
-    std::uniform_int_distribution<> dist{min_size, max_size};
-
-    for(int i = 0; i < iters; i++) {
-        std::cout << "Iteration " << i << "\n";
-        run_test<method>(dist(mt));
-    }
 }

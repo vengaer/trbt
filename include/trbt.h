@@ -12,13 +12,9 @@
 #include <utility>
 
 #ifdef TRBT_DEBUG
-#include <algorithm>
 #include <iomanip>
 #include <iostream>
-#include <random>
 #include <stdexcept>
-#include <string>
-#include <vector>
 #endif
 
 namespace trbt {
@@ -297,6 +293,13 @@ namespace impl {
                     (static_cast<std::underlying_type_t<ValueRelation>>(rel) + 1) / 2);
     }
 
+    
+    template <typename T>
+    bool bit_is_set(T const& value, unsigned bitnum) noexcept {
+        static_assert(std::is_integral_v<remove_cvref_t<T>>);
+        
+        return value & (1 << bitnum);
+    }
     template <typename Value>
     struct node {
         static_assert(!std::is_const_v<std::remove_reference_t<Value>>, 
@@ -399,7 +402,7 @@ namespace impl {
     };
 
     #ifdef TRBT_DEBUG
-    namespace debug {
+    inline namespace debug {
         inline int constexpr THREAD_ERROR = 0x1;
         inline int constexpr LINK_ERROR   = 0x2;
         inline int constexpr NODE_ERROR   = 0x4;
@@ -616,9 +619,9 @@ class rbtree {
     using ValueRelation = impl::ValueRelation;
 
     #ifdef TRBT_DEBUG
-    using color_violation_exception        = impl::debug::color_violation_exception;
-    using bst_property_violation_exception = impl::debug::bst_property_violation_exception;
-    using height_violation_exception       = impl::debug::height_violation_exception;
+    using color_violation_exception        = impl::color_violation_exception;
+    using bst_property_violation_exception = impl::bst_property_violation_exception;
+    using height_violation_exception       = impl::height_violation_exception;
     #endif
 
     public:
@@ -712,7 +715,9 @@ class rbtree {
         const_iterator upper_bound(value_type const& value) const;
 
         #ifdef TRBT_DEBUG
-        void assert_properties_ok() const;
+        template <typename StringConverter>
+        void assert_properties_ok(StringConverter sc) const;
+
         int assert_leftmost_ok() const;
         int assert_rightmost_ok() const;
         #endif
@@ -814,7 +819,8 @@ class rbtree {
         #endif
 
         #ifdef TRBT_DEBUG
-        int assert_properties_ok(node_type* t) const;
+        template <typename StringConverter>
+        int assert_properties_ok(node_type* t, StringConverter sc) const;
         #endif
 };
 
@@ -1192,12 +1198,13 @@ rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value) const {
 
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-void rbtree<Value, Compare, Allocator>::assert_properties_ok() const {
+template <typename StringConverter>
+void rbtree<Value, Compare, Allocator>::assert_properties_ok(StringConverter sc) const {
     if(!empty()) {
         if(sentinel_->right->color != Color::Black)
             throw color_violation_exception{"Root is red\n"};
         
-        assert_properties_ok(sentinel_->right);
+        assert_properties_ok(sentinel_->right, sc);
     }
 }
 #endif
@@ -2023,52 +2030,52 @@ rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value, node_typ
             
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-int rbtree<Value, Compare, Allocator>::assert_properties_ok(node_type* t) const {
+template <typename StringConverter>
+int rbtree<Value, Compare, Allocator>::assert_properties_ok(node_type* t, StringConverter sc) const {
     node_type *lh = link(t, Direction::Left), *rh = link(t, Direction::Right);
     
     if(t->color == Color::Red) {
         if(lh->color == Color::Red || rh->color == Color::Red)
-            throw color_violation_exception{"Node " + std::to_string(t->value()) + 
+            throw color_violation_exception{"Node " + sc(t->value()) + 
                                             " is red and has red children\n"};
     }
 
     if(lh != sentinel_ && !compare_(lh->value(), t->value())) {
         throw bst_property_violation_exception{"Bst property violated by node " + 
-                                                std::to_string(t->value()) + 
+                                                sc(t->value()) + 
                                                " and its left child " + 
-                                                std::to_string(lh->value()) + "\n"};
+                                                sc(lh->value()) + "\n"};
     }
     if(rh != sentinel_ && !compare_(t->value(), rh->value())) {
         throw bst_property_violation_exception{"BST property violated by node " +
-                                                std::to_string(t->value()) + 
+                                                sc(t->value()) + 
                                                " and its right child " + 
-                                                std::to_string(t->right->value())};
+                                                sc(t->right->value())};
     }
 
     int height_contribution = t->color == Color::Black ? 1 : 0;
 
     if(t->has_left_child() && t->has_right_child()) {
-        int left_height = assert_properties_ok(t->left);
-        int right_height = assert_properties_ok(t->right);
+        int left_height = assert_properties_ok(t->left, sc);
+        int right_height = assert_properties_ok(t->right, sc);
 
         if(left_height != right_height)
-            throw height_violation_exception{"Node " + std::to_string(t->value()) + 
-                                             ":\nleft height: " + std::to_string(left_height) + 
-                                             "\nright height: " + std::to_string(right_height) + 
-                                             "\n"};
+            throw height_violation_exception{"Node " + sc(t->value()) + ":\nleft height: " + 
+                    std::to_string(left_height) + "\nright height: " + 
+                    std::to_string(right_height) + "\n"};
 
         return left_height + height_contribution;
     }
     else if(!t->is_leaf()) {
         if(!t->has_left_child()) {
-            if(assert_properties_ok(t->right) != -1)
-                throw height_violation_exception{"Node " + std::to_string(t->value()) + 
-                                "'s right subtree has a black height larger than the left\n"};
+            if(assert_properties_ok(t->right, sc) != -1)
+                throw height_violation_exception{"Node " + sc(t->value()) + 
+                        "'s right subtree has a black height larger than the left\n"};
         }
         else if(!t->has_right_child()) {
-            if(assert_properties_ok(t->left) != -1)
-                throw height_violation_exception{"Node " + std::to_string(t->value()) + 
-                                "'s left subtree has a black height larger then the right\n"};
+            if(assert_properties_ok(t->left, sc) != -1)
+                throw height_violation_exception{"Node " + sc(t->value()) + 
+                        "'s left subtree has a black height larger then the right\n"};
         }
     }
     return height_contribution - 1;
@@ -2076,7 +2083,7 @@ int rbtree<Value, Compare, Allocator>::assert_properties_ok(node_type* t) const 
 
 template <typename Value, typename Compare, typename Allocator>
 int rbtree<Value, Compare, Allocator>::assert_leftmost_ok() const {
-    using namespace impl::debug;
+    using namespace impl;
 
     if(empty()) {
         return 0;
@@ -2097,7 +2104,7 @@ int rbtree<Value, Compare, Allocator>::assert_leftmost_ok() const {
 
 template <typename Value, typename Compare, typename Allocator>
 int rbtree<Value, Compare, Allocator>::assert_rightmost_ok() const {
-    using namespace impl::debug;
+    using namespace impl;
 
     if(empty())
         return 0;
