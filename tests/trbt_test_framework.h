@@ -1,10 +1,13 @@
-#ifndef TRBT_TEST_FRAMEWORK
-#define TRBT_TEST_FRAMEWORK
+#ifndef TRBT_TEST_FRAMEWORK_H
+#define TRBT_TEST_FRAMEWORK_H
 
 #define TRBT_DEBUG
 #pragma once
 #include "trbt.h"
+#include <array>
 #include <cstddef>
+#include <iomanip>
+#include <iostream>
 #include <random>
 #include <sstream>
 #include <string>
@@ -15,7 +18,6 @@
 namespace trbt {
 
 namespace test {
-
     template <typename Tree>
     void leftmost(Tree const& tree);
 
@@ -48,6 +50,9 @@ namespace test {
 
     template <typename Tree, typename Vec, typename StringConverter>
     void erase(Tree& tree, Vec& vals, StringConverter sc);
+
+    template <typename Tree>
+    void empty(Tree const& tree);
 
     std::vector<int> generate_int_vec(std::size_t size);
     std::vector<std::string> generate_string_vec(std::size_t size);
@@ -199,6 +204,14 @@ namespace test {
 
             contains(tree, vals, sc);
         }
+    }
+    
+    template <typename Tree>
+    void empty(Tree const& tree) {
+        using namespace impl::debug;
+
+        if(!tree.empty())
+            throw value_retention_exception{"Tree is not empty\n"};
     }
 } /* namespace test */
 } /* namespace trbt */

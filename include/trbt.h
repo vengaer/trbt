@@ -4,6 +4,7 @@
 #pragma once
 #include <cstddef>
 #include <functional>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <stdexcept>
@@ -13,7 +14,6 @@
 
 #ifdef TRBT_DEBUG
 #include <iomanip>
-#include <iostream>
 #include <stdexcept>
 #endif
 
@@ -672,7 +672,7 @@ class rbtree {
         allocator_type get_allocator() const;
 
         #ifdef TRBT_DEBUG
-        void print() const;
+        void print(std::ostream& os = std::cout) const;
         #endif
 
         template <typename T = value_type, typename = impl::enable_if_convertible_t<T, value_type>>
@@ -815,7 +815,7 @@ class rbtree {
         node_type* upper_bound(value_type const& value, node_type* current) const;
 
         #ifdef TRBT_DEBUG
-        void print(node_type* t, unsigned indentation = 0) const;
+        void print(node_type* t, std::ostream& os, unsigned indentation = 0) const;
         #endif
 
         #ifdef TRBT_DEBUG
@@ -968,11 +968,11 @@ rbtree<Value, Compare, Allocator>::get_allocator() const {
 
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-void rbtree<Value, Compare, Allocator>::print() const {
+void rbtree<Value, Compare, Allocator>::print(std::ostream& os) const {
     if(empty())
-        std::cerr << "Tree is empty\n";
+        os << "Tree is empty\n";
     else
-        print(sentinel_->right);
+        print(sentinel_->right, os);
 }
 #endif
 
@@ -1353,21 +1353,21 @@ void swap(rbtree<Val_, Comp_, Alloc_>& left, rbtree<Val_, Comp_, Alloc_>& right)
 
 #ifdef TRBT_DEBUG
 template <typename Value, typename Compare, typename Allocator>
-void rbtree<Value, Compare, Allocator>::print(node_type* t, unsigned indentation) const {
+void rbtree<Value, Compare, Allocator>::print(node_type* t, std::ostream& os, unsigned indentation) const {
     if(t->has_right_child())
-        print(t->right, indentation + 2);
+        print(t->right, os, indentation + 2);
     
     std::string const color = t->color == Color::Red ? "R:" : "B:";
 
     if constexpr(impl::is_map_v<rbtree>) {
-        std::cout << color << std::setw(indentation) << ""
-                  << "{" << t->value().first << ", " << t->value().second << "}\n";
+        os << color << std::setw(indentation) << ""
+           << "{" << t->value().first << ", " << t->value().second << "}\n";
     }
     else 
-        std::cout << color << std::setw(indentation) << "" << t->value() << "\n";
+        os << color << std::setw(indentation) << "" << t->value() << "\n";
 
     if(t->has_left_child())
-        print(t->left, indentation + 2);
+        print(t->left, os, indentation + 2);
 }
 #endif
 
