@@ -1001,14 +1001,16 @@ typename rbtree<Value, Compare, Allocator>::iterator
 rbtree<Value, Compare, Allocator>::insert(const_iterator hint, T&& value) {
     using impl::equals;
 
-    bool suitable_parent = hint.current_->color == Color::Black &&
-                           !hint.current_->has_left_child();
+    bool suitable_hint = hint.current_->color == Color::Black &&
+                                 !hint.current_->has_left_child() &&
+                                  compare_(value, hint.current_->value());
 
-    bool lt_parent = compare_(value, hint.current_->value());
-
-    if(hint != end() && suitable_parent && lt_parent) {
-        if(equals<key_compare>(value, hint.current_->left->value()))
+    if(hint != end() && suitable_hint) {
+        if(hint.current_->left != sentinel_ &&
+                equals<key_compare>(value, hint.current_->left->value())) 
+        {
             return iterator{this, hint.current_->left};;
+        }
 
         node_type* node = allocate_node(std::forward<T>(value), nullptr, nullptr, Color::Red, node_type::LEAF);
         enqueue_as_left_child(node, hint.current_);
@@ -1038,14 +1040,16 @@ rbtree<Value, Compare, Allocator>::emplace_hint(const_iterator hint, Args&&... a
     using impl::equals;
 
     value_type value{std::forward<Args>(args)...};
-    bool suitable_parent = hint.current_->color == Color::Black &&
-                           !hint.current_->has_left_child();
+    bool suitable_hint = hint.current_->color == Color::Black &&
+                                   !hint.current_->has_left_child() &&
+                                    compare_(value, hint.current_->value());;
 
-    bool lt_parent = compare_(value, hint.current_->value());
-
-    if(hint != end() && suitable_parent && lt_parent) {
-        if(equals<Compare>(value, hint.current_->left->value()))
+    if(hint != end() && suitable_hint) {
+        if(hint.current_->left != sentinel_ && 
+                equals<Compare>(value, hint.current_->left->value()))
+        {
             return iterator{this, hint.current_->left};
+        }
 
         node_type* node = allocate_node(std::move(value), nullptr, nullptr, Color::Red, node_type::LEAF);
         enqueue_as_left_child(node, hint.current_);
