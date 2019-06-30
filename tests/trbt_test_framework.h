@@ -19,6 +19,33 @@
 namespace trbt {
 
 namespace test {
+    template <typename Tree, typename StringConverter>
+    void copy_ctor(Tree& tree, StringConverter sc);
+
+    template <typename Tree, typename StringConverter>
+    void move_ctor(Tree& tree, StringConverter sc);
+
+    template <typename Tree, typename StringConverter>
+    void copy_assignment(Tree& tree, StringConverter sc);
+
+    template <typename Tree, typename StringConverter>
+    void move_assignment(Tree& tree, StringConverter sc);
+
+    template <typename Tree>
+    void empty(Tree& tree);
+
+    template <typename Tree, typename T>
+    void size(Tree& tree, std::vector<T> const& vals);
+
+    template <typename Tree>
+    void clear(Tree& tree);
+
+    template <typename Tree, typename Vec, typename StringConverter>
+    void contains(Tree const& tree, Vec const& vals, StringConverter sc);
+
+    template <typename Tree, typename Vec, typename StringConverter>
+    void count(Tree const& tree, Vec const& vals, StringConverter sc);
+
     template <typename Tree>
     void leftmost(Tree const& tree);
 
@@ -47,21 +74,173 @@ namespace test {
     void pair_hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc);
 
     template <typename Tree, typename Vec, typename StringConverter>
-    void contains(Tree const& tree, Vec const& vals, StringConverter sc);
-
-    template <typename Tree, typename Vec, typename StringConverter>
     void erase(Tree& tree, Vec& vals, StringConverter sc);
-
-    template <typename Tree>
-    void empty(Tree const& tree);
 
     std::vector<int> generate_int_vec(std::size_t size);
     std::vector<std::string> generate_string_vec(std::size_t size);
     std::vector<std::pair<int, double>> generate_pair_vec(std::size_t size);
 
-    void print_heading(std::string const& method, std::size_t test_size, std::size_t current_iter, std::size_t total_iters);
+    void print_heading(std::string const& method, std::size_t test_size = 1u, 
+            std::size_t current_iter = 0u, std::size_t total_iters = 1u);
 
     /* Definitions */
+
+    template <typename Tree, typename StringConverter>
+    void copy_ctor(Tree& tree, StringConverter sc) {
+        using namespace trbt::impl;
+
+        Tree cpy{tree};
+
+        leftmost(cpy);
+        rightmost(cpy);
+
+        std::vector vec(std::begin(tree), std::end(tree));
+
+        contains(cpy, vec, sc);
+        
+        if(cpy.size() != tree.size())
+            throw value_retention_exception{"Original and copy are not the same size\n"};
+    }
+
+    template <typename Tree, typename StringConverter>
+    void move_ctor(Tree& tree, StringConverter sc) {
+        using namespace trbt::impl;
+
+        std::vector vec(std::begin(tree), std::end(tree));
+        Tree cpy{std::move(tree)};
+
+        leftmost(cpy);
+        rightmost(cpy);
+        
+        leftmost(tree);
+        rightmost(tree);
+
+        contains(cpy, vec, sc);
+
+        if(cpy.size() != vec.size())
+            throw value_retention_exception{"Original and copy are not the same size\n"};
+
+        if(tree.size() != 0u)
+            throw value_retention_exception{"Original is not empty after move"};
+    }
+
+    template <typename Tree, typename StringConverter>
+    void copy_assignment(Tree& tree, StringConverter sc) {
+        using namespace trbt::impl;
+
+        Tree cpy;
+        cpy = tree;
+
+        leftmost(cpy);
+        rightmost(cpy);
+
+        std::vector vec(std::begin(tree), std::end(tree));
+
+        contains(cpy, vec, sc);
+        
+        if(cpy.size() != tree.size())
+            throw value_retention_exception{"Original and copy are not the same size\n"};
+    }
+
+    template <typename Tree, typename StringConverter>
+    void move_assignment(Tree& tree, StringConverter sc) {
+        using namespace trbt::impl;
+
+        std::vector vec(std::begin(tree), std::end(tree));
+        Tree cpy;
+        cpy = std::move(tree);
+
+        leftmost(cpy);
+        rightmost(cpy);
+        
+        leftmost(tree);
+        rightmost(tree);
+
+        contains(cpy, vec, sc);
+
+        if(cpy.size() != vec.size())
+            throw value_retention_exception{"Original and copy are not the same size\n"};
+
+        if(tree.size() != 0u)
+            throw value_retention_exception{"Original is not empty after move"};
+    }
+        
+    template <typename Tree>
+    void empty(Tree& tree) {
+        using namespace trbt::impl;
+        tree.clear();
+
+        if(!tree.empty())
+            throw value_retention_exception{"Tree not empty after clearing"};
+
+        tree.insert(typename Tree::value_type{});
+        if(tree.empty())
+            throw value_retention_exception{"Tree claims empty after insertion"};
+    }
+
+    template <typename Tree, typename T>
+    void size(Tree& tree, std::vector<T>& vals) {
+        using namespace trbt::impl;
+
+        tree.clear();
+        auto i = 0u;
+
+        for(auto const& v : vals) {
+            if(tree.size() != i) {
+                throw value_retention_exception{"Size " + std::to_string(tree.size()) + 
+                        " should be " + std::to_string(i) + "\n"};
+            }
+
+            tree.insert(v); 
+            ++i;
+        }
+        if(tree.size() != i) {
+                throw value_retention_exception{"Size " + std::to_string(tree.size()) + 
+                        " should be " + std::to_string(i) + "\n"};
+        }
+    }
+
+    template <typename Tree>
+    void clear(Tree& tree) {
+        using namespace trbt::impl;
+        for(int i = 0; i < 2; i++) {
+            tree.clear();
+        
+            if(tree.size() != 0)
+                throw value_retention_exception{"Tree size is not 0 after calling clear"};
+
+            if(!tree.empty())
+                throw value_retention_exception{"Empty returned false"};
+        }
+    }
+
+    template <typename Tree, typename Vec, typename StringConverter>
+    void contains(Tree const& tree, Vec const& vals, StringConverter sc) {
+        using namespace trbt::impl;
+        Tree cpy{tree};
+        for(auto const& v : vals) {
+            if(!tree.contains(v))
+                throw value_retention_exception{sc(v) + " not in tree\n"};
+            cpy.erase(v);
+            if(cpy.contains(v))
+                throw value_retention_exception{sc(v) + " in tree after erasure\n"};
+        }
+    }
+
+    template <typename Tree, typename Vec, typename StringConverter>
+    void count(Tree const& tree, Vec const& vals, StringConverter sc) {
+        using namespace trbt::impl;
+        Tree cpy{tree};
+        for(auto const& v : vals) {
+            if(!tree.count(v))
+                throw value_retention_exception{sc(v) + " not in tree\n"};
+            cpy.erase(v);
+            if(cpy.count(v))
+                throw value_retention_exception{sc(v) + " in tree after erasure\n"};
+        }
+
+    }
+
 
     template <typename Tree>
     void leftmost(Tree const& tree) {
@@ -178,23 +357,20 @@ namespace test {
     }
 
     template <typename Tree, typename Vec, typename StringConverter>
-    void contains(Tree const& tree, Vec const& vals, StringConverter sc) {
-        using namespace trbt::impl;
-        for(auto const& v : vals) {
-            if(!tree.contains(v))
-                throw value_retention_exception{sc(v) + " not in tree\n"};
-        }
-    }
-
-    template <typename Tree, typename Vec, typename StringConverter>
     void erase(Tree& tree, Vec& vals, StringConverter sc) {
+        using namespace trbt::impl;
         std::mt19937 mt{std::random_device{}()};
         
         while(vals.size()) {
             std::uniform_int_distribution<> dis(0, vals.size() - 1);
-            auto val = vals[dis(mt)];
+            auto idx = dis(mt);
+            auto val = vals[idx];
 
-            tree.erase(val);
+            if(!tree.erase(val))
+                throw value_retention_exception{"Value to erase not in tree\n"};
+            if(tree.erase(val))
+                throw value_retention_exception{"Value still in tree after erasure\n"};
+            
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
@@ -205,15 +381,9 @@ namespace test {
 
             contains(tree, vals, sc);
         }
+
     }
     
-    template <typename Tree>
-    void empty(Tree const& tree) {
-        using namespace impl::debug;
-
-        if(!tree.empty())
-            throw value_retention_exception{"Tree is not empty\n"};
-    }
 } /* namespace test */
 } /* namespace trbt */
 
