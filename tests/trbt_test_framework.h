@@ -286,24 +286,37 @@ namespace test {
 
     template <typename Tree, typename T, typename StringConverter>
     void insert(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
+        using namespace trbt::impl;
         for(auto const& v : vals) {
             trace_insert_if_available(tree, v, TRACE_CALL_RESOLVER);
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
         }
+        if(tree.size() != vals.size()) {
+            throw value_retention_exception{"Sizes differ. Tree: " + 
+                    std::to_string(tree.size()) + " Vec: " + std::to_string(vals.size()) +
+                    "\n"};
+        }
     }
 
     template <typename Tree, typename T, typename StringConverter>
     void insert_range(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
+        using namespace trbt::impl;
         trace_insert_if_available(tree, std::begin(vals), std::end(vals), TRACE_CALL_RESOLVER);
         tree.assert_properties_ok(sc);
         leftmost(tree);
         rightmost(tree);
+        if(tree.size() != vals.size()) {
+            throw value_retention_exception{"Sizes differ. Tree: " + 
+                    std::to_string(tree.size()) + " Vec: " + std::to_string(vals.size()) +
+                    "\n"};
+        }
     }
 
     template <typename Tree, typename T, typename StringConverter>
     void hinted_insert(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
+        using namespace trbt::impl;
         for(auto const& v : vals) {
             auto it = tree.upper_bound(v);
             trace_insert_if_available(tree, it, v, TRACE_CALL_RESOLVER);
@@ -311,20 +324,32 @@ namespace test {
             leftmost(tree);
             rightmost(tree);
         }
+        if(tree.size() != vals.size()) {
+            throw value_retention_exception{"Sizes differ. Tree: " + 
+                    std::to_string(tree.size()) + " Vec: " + std::to_string(vals.size()) +
+                    "\n"};
+        }
     }
 
     template <typename Tree, typename T, typename StringConverter>
     void emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
+        using namespace trbt::impl;
         for(auto const& v : vals) {
             trace_emplace_if_available(tree, TRACE_CALL_RESOLVER, v);
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
         }
+        if(tree.size() != vals.size()) {
+            throw value_retention_exception{"Sizes differ. Tree: " + 
+                    std::to_string(tree.size()) + " Vec: " + std::to_string(vals.size()) +
+                    "\n"};
+        }
     }
 
     template <typename Tree, typename T, typename StringConverter>
     void hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
+        using namespace trbt::impl;
         for(auto const& v : vals) {
             auto it = tree.upper_bound(v);
             trace_emplace_hint_if_available(tree, TRACE_CALL_RESOLVER, it, v);
@@ -332,20 +357,32 @@ namespace test {
             leftmost(tree);
             rightmost(tree);
         }
+        if(tree.size() != vals.size()) {
+            throw value_retention_exception{"Sizes differ. Tree: " + 
+                    std::to_string(tree.size()) + " Vec: " + std::to_string(vals.size()) +
+                    "\n"};
+        }
     }
 
     template <typename Tree, typename T, typename StringConverter>
     void pair_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
+        using namespace trbt::impl;
         for(auto const& v : vals) {
             trace_emplace_if_available(tree, TRACE_CALL_RESOLVER, v, double{});
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
         }
+        if(tree.size() != vals.size()) {
+            throw value_retention_exception{"Sizes differ. Tree: " + 
+                    std::to_string(tree.size()) + " Vec: " + std::to_string(vals.size()) +
+                    "\n"};
+        }
     }
 
     template <typename Tree, typename T, typename StringConverter>
     void pair_hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
+        using namespace trbt::impl;
         for(auto const& v : vals) {
             std::pair<int, double> p{v, double{}};
             auto it = tree.upper_bound(p);
@@ -354,30 +391,30 @@ namespace test {
             leftmost(tree);
             rightmost(tree);
         }
+        if(tree.size() != vals.size()) {
+            throw value_retention_exception{"Sizes differ. Tree: " + 
+                    std::to_string(tree.size()) + " Vec: " + std::to_string(vals.size()) +
+                    "\n"};
+        }
     }
 
     template <typename Tree, typename Vec, typename StringConverter>
     void erase(Tree& tree, Vec& vals, StringConverter sc) {
         using namespace trbt::impl;
         std::mt19937 mt{std::random_device{}()};
+        std::shuffle(std::begin(vals), std::end(vals), mt);
         
-        while(vals.size()) {
-            std::uniform_int_distribution<> dis(0, vals.size() - 1);
-            auto idx = dis(mt);
-            auto val = vals[idx];
-
-            if(!tree.erase(val))
+        for(int i = vals.size() - 1; i >= 0; --i) {
+            if(!trace_erase_if_available(tree, vals[i], TRACE_CALL_RESOLVER))
                 throw value_retention_exception{"Value to erase not in tree\n"};
-            if(tree.erase(val))
+            if(tree.erase(vals[i]))
                 throw value_retention_exception{"Value still in tree after erasure\n"};
+            vals.erase(std::end(vals) - 1, std::end(vals));
             
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
 
-            vals.erase(std::remove_if(std::begin(vals), std::end(vals), [val](auto const& v) {
-                return v == val;
-            }), std::end(vals));
 
             contains(tree, vals, sc);
         }
