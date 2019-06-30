@@ -505,7 +505,7 @@ int main() {
                 auto test_size = test_size_dis(mt);
                 test::print_heading("EMPLACE (std::pair<int, double>, piecewise)", test_size, i, iters); 
                 auto vec = test::generate_int_vec(test_size);
-                std::vector<std::pair<int, double>> pvec(test_size);
+                std::vector<std::pair<int, double>> pvec(vec.size());
                 std::transform(std::begin(vec), std::end(vec), std::begin(pvec), [](int i) {
                     return std::make_pair(i, double{});
                 });
@@ -538,7 +538,7 @@ int main() {
                 auto test_size = test_size_dis(mt);
                 test::print_heading("HINTED EMPLACE (std::pair<int, double>, piecewise)", test_size, i, iters); 
                 auto vec = test::generate_int_vec(test_size);
-                std::vector<std::pair<int, double>> pvec(test_size);
+                std::vector<std::pair<int, double>> pvec(vec.size());
                 std::transform(std::begin(vec), std::end(vec), std::begin(pvec), [](int i) {
                     return std::make_pair(i, double{});
                 });
@@ -563,11 +563,13 @@ int main() {
     }
     catch(std::runtime_error& err) {
         if(int_tree.active)
-            int_tree.print_trace(TRACE_STREAM);
+            int_tree.print_trace(test::trbt_trace_stream);
         else if(str_tree.active)
-            str_tree.print_trace(TRACE_STREAM);
+            str_tree.print_trace(test::trbt_trace_stream);
         else
-            pair_tree.print_trace(TRACE_STREAM);
+            pair_tree.print_trace(test::trbt_trace_stream);
+
+        test::trbt_trace_stream << err.what() << "\n";
     }
 
     return 0;

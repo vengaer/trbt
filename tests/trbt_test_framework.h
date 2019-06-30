@@ -4,6 +4,7 @@
 #define TRBT_DEBUG
 #pragma once
 #include "trbt.h"
+#include "trbt_trace_type.h"
 #include <array>
 #include <cstddef>
 #include <iomanip>
@@ -39,11 +40,11 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc);
 
-    template <typename StringConverter>
-    void pair_emplace(rbtree<std::pair<int, double>>& tree, std::vector<int> const& vals, StringConverter sc);
+    template <typename Tree, typename T, typename StringConverter>
+    void pair_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc);
 
-    template <typename StringConverter>
-    void pair_hinted_emplace(rbtree<std::pair<int, double>>& tree, std::vector<int> const& vals, StringConverter sc);
+    template <typename Tree, typename T, typename StringConverter>
+    void pair_hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc);
 
     template <typename Tree, typename Vec, typename StringConverter>
     void contains(Tree const& tree, Vec const& vals, StringConverter sc);
@@ -107,7 +108,7 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void insert(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         for(auto const& v : vals) {
-            tree.insert(v);
+            trace_insert_if_available(tree, v, TRACE_CALL_RESOLVER);
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
@@ -116,7 +117,7 @@ namespace test {
 
     template <typename Tree, typename T, typename StringConverter>
     void insert_range(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
-        tree.insert(std::begin(vals), std::end(vals));
+        trace_insert_if_available(tree, std::begin(vals), std::end(vals), TRACE_CALL_RESOLVER);
         tree.assert_properties_ok(sc);
         leftmost(tree);
         rightmost(tree);
@@ -126,7 +127,7 @@ namespace test {
     void hinted_insert(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         for(auto const& v : vals) {
             auto it = tree.upper_bound(v);
-            tree.insert(it, v);
+            trace_insert_if_available(tree, it, v, TRACE_CALL_RESOLVER);
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
@@ -136,7 +137,7 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         for(auto const& v : vals) {
-            tree.emplace(v);
+            trace_emplace_if_available(tree, TRACE_CALL_RESOLVER, v);
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
@@ -147,29 +148,29 @@ namespace test {
     void hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         for(auto const& v : vals) {
             auto it = tree.upper_bound(v);
-            tree.emplace_hint(it, v);
+            trace_emplace_hint_if_available(tree, TRACE_CALL_RESOLVER, it, v);
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
         }
     }
 
-    template <typename StringConverter>
-    void pair_emplace(rbtree<std::pair<int, double>>& tree, std::vector<int> const& vals, StringConverter sc) {
+    template <typename Tree, typename T, typename StringConverter>
+    void pair_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         for(auto const& v : vals) {
-            tree.emplace(v, double{});
+            trace_emplace_if_available(tree, TRACE_CALL_RESOLVER, v, double{});
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
         }
     }
 
-    template <typename StringConverter>
-    void pair_hinted_emplace(rbtree<std::pair<int, double>>& tree, std::vector<int> const& vals, StringConverter sc) {
+    template <typename Tree, typename T, typename StringConverter>
+    void pair_hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         for(auto const& v : vals) {
             std::pair<int, double> p{v, double{}};
             auto it = tree.upper_bound(p);
-            tree.emplace_hint(it, v, double{});
+            trace_emplace_hint_if_available(tree, TRACE_CALL_RESOLVER, it, v, double{});
             tree.assert_properties_ok(sc);
             leftmost(tree);
             rightmost(tree);
