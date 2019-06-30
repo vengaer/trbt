@@ -28,59 +28,59 @@ inline std::size_t constexpr trbt_trace_size      = 1u;
 inline std::ostream& trbt_trace_stream            = std::cout;
 
 /* int */
-TRBT_TEST_FLAG test_int_copy_ctor                 = false;
-TRBT_TEST_FLAG test_int_move_ctor                 = false;
-TRBT_TEST_FLAG test_int_copy_assignment           = false;
-TRBT_TEST_FLAG test_int_move_assignment           = false;
-TRBT_TEST_FLAG test_int_empty                     = false;
-TRBT_TEST_FLAG test_int_size                      = false;
-TRBT_TEST_FLAG test_int_clear                     = false;
-TRBT_TEST_FLAG test_int_contains                  = false;
+TRBT_TEST_FLAG test_int_copy_ctor                 = true;
+TRBT_TEST_FLAG test_int_move_ctor                 = true;
+TRBT_TEST_FLAG test_int_copy_assignment           = true;
+TRBT_TEST_FLAG test_int_move_assignment           = true;
+TRBT_TEST_FLAG test_int_empty                     = true;
+TRBT_TEST_FLAG test_int_size                      = true;
+TRBT_TEST_FLAG test_int_clear                     = true;
+TRBT_TEST_FLAG test_int_contains                  = true;
 TRBT_TEST_FLAG test_int_count                     = true;
-TRBT_TEST_FLAG test_int_insert                    = false;
-TRBT_TEST_FLAG test_int_insert_range              = false;
-TRBT_TEST_FLAG test_int_hinted_insert             = false;
-TRBT_TEST_FLAG test_int_emplace                   = false;
-TRBT_TEST_FLAG test_int_hinted_emplace            = false;
-TRBT_TEST_FLAG test_int_erase                     = false;
+TRBT_TEST_FLAG test_int_insert                    = true;
+TRBT_TEST_FLAG test_int_insert_range              = true;
+TRBT_TEST_FLAG test_int_hinted_insert             = true;
+TRBT_TEST_FLAG test_int_emplace                   = true;
+TRBT_TEST_FLAG test_int_hinted_emplace            = true;
+TRBT_TEST_FLAG test_int_erase                     = true;
 
 /* std::string */
-TRBT_TEST_FLAG test_string_copy_ctor              = false;
-TRBT_TEST_FLAG test_string_move_ctor              = false;
-TRBT_TEST_FLAG test_string_copy_assignment        = false;
-TRBT_TEST_FLAG test_string_move_assignment        = false;
-TRBT_TEST_FLAG test_string_empty                  = false;
-TRBT_TEST_FLAG test_string_size                   = false;
-TRBT_TEST_FLAG test_string_clear                  = false;
-TRBT_TEST_FLAG test_string_contains               = false;
+TRBT_TEST_FLAG test_string_copy_ctor              = true;
+TRBT_TEST_FLAG test_string_move_ctor              = true;
+TRBT_TEST_FLAG test_string_copy_assignment        = true;
+TRBT_TEST_FLAG test_string_move_assignment        = true;
+TRBT_TEST_FLAG test_string_empty                  = true;
+TRBT_TEST_FLAG test_string_size                   = true;
+TRBT_TEST_FLAG test_string_clear                  = true;
+TRBT_TEST_FLAG test_string_contains               = true;
 TRBT_TEST_FLAG test_string_count                  = true;
-TRBT_TEST_FLAG test_string_insert                 = false;
-TRBT_TEST_FLAG test_string_insert_range           = false;
-TRBT_TEST_FLAG test_string_hinted_insert          = false;
-TRBT_TEST_FLAG test_string_emplace                = false;
-TRBT_TEST_FLAG test_string_hinted_emplace         = false;
-TRBT_TEST_FLAG test_string_erase                  = false;
+TRBT_TEST_FLAG test_string_insert                 = true;
+TRBT_TEST_FLAG test_string_insert_range           = true;
+TRBT_TEST_FLAG test_string_hinted_insert          = true;
+TRBT_TEST_FLAG test_string_emplace                = true;
+TRBT_TEST_FLAG test_string_hinted_emplace         = true;
+TRBT_TEST_FLAG test_string_erase                  = true;
 
 /* std::pair<int, double> */
-TRBT_TEST_FLAG test_pair_copy_ctor                = false;
-TRBT_TEST_FLAG test_pair_move_ctor                = false;
-TRBT_TEST_FLAG test_pair_copy_assignment          = false;
-TRBT_TEST_FLAG test_pair_move_assignment          = false;
-TRBT_TEST_FLAG test_pair_empty                    = false;
-TRBT_TEST_FLAG test_pair_size                     = false;
-TRBT_TEST_FLAG test_pair_clear                    = false;
-TRBT_TEST_FLAG test_pair_contains                 = false;
+TRBT_TEST_FLAG test_pair_copy_ctor                = true;
+TRBT_TEST_FLAG test_pair_move_ctor                = true;
+TRBT_TEST_FLAG test_pair_copy_assignment          = true;
+TRBT_TEST_FLAG test_pair_move_assignment          = true;
+TRBT_TEST_FLAG test_pair_empty                    = true;
+TRBT_TEST_FLAG test_pair_size                     = true;
+TRBT_TEST_FLAG test_pair_clear                    = true;
+TRBT_TEST_FLAG test_pair_contains                 = true;
 TRBT_TEST_FLAG test_pair_count                    = true;
-TRBT_TEST_FLAG test_pair_insert                   = false;
-TRBT_TEST_FLAG test_pair_insert_range             = false;
-TRBT_TEST_FLAG test_pair_hinted_insert            = false;
-TRBT_TEST_FLAG test_pair_emplace                  = false;
-TRBT_TEST_FLAG test_pair_hinted_emplace           = false;
-TRBT_TEST_FLAG test_pair_erase                    = false;
+TRBT_TEST_FLAG test_pair_insert                   = true;
+TRBT_TEST_FLAG test_pair_insert_range             = true;
+TRBT_TEST_FLAG test_pair_hinted_insert            = true;
+TRBT_TEST_FLAG test_pair_emplace                  = true;
+TRBT_TEST_FLAG test_pair_hinted_emplace           = true;
+TRBT_TEST_FLAG test_pair_erase                    = true;
 
 /* std::pair<int, double>, piecewise */
-TRBT_TEST_FLAG test_pair_piecewise_emplace        = false;
-TRBT_TEST_FLAG test_pair_piecewise_hinted_emplace = false;
+TRBT_TEST_FLAG test_pair_piecewise_emplace        = true;
+TRBT_TEST_FLAG test_pair_piecewise_hinted_emplace = true;
 
 } /* namespace test */
 } /* namespace trbt */

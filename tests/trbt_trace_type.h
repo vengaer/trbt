@@ -119,15 +119,17 @@ inline int constexpr TRACE_CALL_RESOLVER{0};
 
 template <typename Tree, typename T>
 auto trace_insert_if_available(Tree& tree, T&& value, int) 
-    -> decltype((void)tree.traced_insert(std::forward<T>(value)))
+    -> std::remove_reference_t< decltype(tree.traced_insert(std::forward<T>(value)))>
                       
 {
-    tree.traced_insert(std::forward<T>(value));
+    return tree.traced_insert(std::forward<T>(value));
 }
 
 template <typename Tree, typename T>
-auto trace_insert_if_available(Tree& tree, T&& value, long) -> void {
-    tree.insert(std::forward<T>(value));
+auto trace_insert_if_available(Tree& tree, T&& value, long) 
+    -> std::pair<typename Tree::iterator, bool>
+{
+    return tree.insert(std::forward<T>(value));
 }
 
 template <typename Tree, typename InputIt>
@@ -144,53 +146,61 @@ auto trace_insert_if_available(Tree& tree, InputIt first, InputIt last, long) ->
 
 template <typename Tree, typename T>
 auto trace_insert_if_available(Tree& tree, typename Tree::const_iterator hint, T&& value, int) 
-    -> decltype((void)tree.traced_insert(hint, std::forward<T>(value)))
+    -> std::remove_reference_t< decltype(tree.traced_insert(hint, std::forward<T>(value)))>
+                
 {
-    tree.traced_insert(hint, std::forward<T>(value));
+    return tree.traced_insert(hint, std::forward<T>(value));
 }
 
 template <typename Tree, typename T>
-auto trace_insert_if_available(Tree& tree, typename Tree::const_iterator hint, T&& value, long) -> void {
-    tree.insert(hint, std::forward<T>(value));
+auto trace_insert_if_available(Tree& tree, typename Tree::const_iterator hint, T&& value, long) 
+    -> typename Tree::iterator 
+{
+    return tree.insert(hint, std::forward<T>(value));
 }
 
 template <typename Tree, typename... Args>
 auto trace_emplace_if_available(Tree& tree, int, Args&&... args) 
-    -> decltype((void)tree.traced_emplace(std::forward<Args>(args)...))
+    -> std::remove_reference_t<decltype(tree.traced_emplace(std::forward<Args>(args)...))>
 {
-    tree.traced_emplace(std::forward<Args>(args)...);
+    return tree.traced_emplace(std::forward<Args>(args)...);
 }
 
 template <typename Tree, typename... Args>
-auto trace_emplace_if_available(Tree& tree, long, Args&&... args) -> void {
-    tree.emplace(std::forward<Args>(args)...);
+auto trace_emplace_if_available(Tree& tree, long, Args&&... args) 
+    ->  std::pair<typename Tree::iterator, bool>
+{
+    return tree.emplace(std::forward<Args>(args)...);
 }
 
 template <typename Tree, typename... Args>
 auto trace_emplace_hint_if_available(Tree& tree, int, 
         typename Tree::const_iterator hint, Args&&... args)
-                -> decltype((void)tree.emplace_hint(hint, std::forward<Args>(args)...))
+                -> std::remove_reference_t<
+                       decltype(tree.emplace_hint(hint, std::forward<Args>(args)...))>
 {
-    tree.traced_emplace_hint(hint, std::forward<Args>(args)...);
+    return tree.traced_emplace_hint(hint, std::forward<Args>(args)...);
 }
 
 template <typename Tree, typename... Args>
 auto trace_emplace_hint_if_available(Tree& tree, long, 
-        typename Tree::const_iterator hint, Args&&... args) -> void 
+        typename Tree::const_iterator hint, Args&&... args) -> typename Tree::iterator
 {
-    tree.emplace_hint(hint, std::forward<Args>(args)...);
+    return tree.emplace_hint(hint, std::forward<Args>(args)...);
 }
 
 template <typename Tree>
 auto trace_erase_if_available(Tree& tree, typename Tree::value_type const& value, int)
-    -> decltype((void)tree.traced_erase(value))
+    -> std::remove_reference_t<decltype(tree.traced_erase(value))>
 {
-    tree.traced_erase(value);
+    return tree.traced_erase(value);
 }
 
 template <typename Tree>
-auto trace_erase_if_available(Tree& tree, typename Tree::value_type const& value, long) -> void {
-    tree.erase(value);
+auto trace_erase_if_available(Tree& tree, typename Tree::value_type const& value, long) 
+    -> typename Tree::size_type
+{
+    return tree.erase(value);
 }
 
 
