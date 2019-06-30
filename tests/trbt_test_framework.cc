@@ -50,6 +50,8 @@ namespace test {
                        std::begin(vals), [](int const& i) {
             return std::make_pair(i, double{});
         });
+        std::sort(std::begin(vals), std::end(vals));
+        vals.erase(std::unique(std::begin(vals), std::end(vals)), std::end(vals));
 
         return vals;
     }
