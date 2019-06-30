@@ -12,6 +12,7 @@ namespace test {
         std::generate(std::begin(vals), std::end(vals), [&dis, &mt]() {
             return dis(mt);
         });
+        std::sort(std::begin(vals), std::end(vals));
         vals.erase(std::unique(std::begin(vals), std::end(vals)), std::end(vals));
 
         return vals;
