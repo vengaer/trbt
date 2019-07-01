@@ -282,7 +282,7 @@ namespace impl {
     enum class Direction { Left, Right };
     enum class ValueRelation { Less = -1, 
                                Equal, 
-                               Larger };
+                               Greater };
 
     inline Direction operator!(Direction dir) {
         return static_cast<Direction>(!static_cast<std::underlying_type_t<Direction>>(dir));
@@ -308,30 +308,31 @@ namespace impl {
         static unsigned char constexpr RIGHT_THREAD = 0x1;
         static unsigned char constexpr LEFT_THREAD  = 0x2;
         static unsigned char constexpr SENTINEL     = 0x4;
+        static unsigned char constexpr COLOR_BIT    = 0x8;
         static unsigned char constexpr LEAF         = LEFT_THREAD | RIGHT_THREAD;
+        
 
         alignas(Value) unsigned char storage[sizeof(Value)];
         node *left, *right;
-        Color color;
         unsigned char flags;
         
         template <typename T = Value, typename = disable_if_same_t<T, node>>
-        node(T&& value, node* ln, node* rn, Color col, unsigned char threaded) 
-            : left{ln}, right{rn}, color{col}, flags(threaded & LEAF) { 
+        node(T&& value, node* ln, node* rn, Color color, unsigned char threaded) 
+            : left{ln}, right{rn}, flags((threaded & LEAF) | to_color_bit(color)) { 
             new (storage) Value(std::forward<T>(value));
         }
 
-        node(node* ln, node* rn, Color col, unsigned char threaded)
-            : left{ln}, right{rn}, color{col}, flags((threaded & LEAF) | SENTINEL) { }
+        node(node* ln, node* rn, Color color, unsigned char threaded)
+            : left{ln}, right{rn}, flags((threaded & LEAF) | SENTINEL | to_color_bit(color)) { }
 
         node(node const& other) 
-            : left{other.left}, right{other.right}, color{other.color}, flags{other.flags} {
+            : left{other.left}, right{other.right}, flags{other.flags} {
             if(!(other.flags & SENTINEL))
                 new (storage) Value(other.value());
         }
     
         node(node&& other) 
-            : left{other.left}, right{other.right}, color{other.color}, flags{other.flags} {
+            : left{other.left}, right{other.right}, flags{other.flags} {
             if(!(other.flags & SENTINEL))
                 new (storage) Value(std::move(other.value()));
         }
@@ -341,7 +342,6 @@ namespace impl {
                 new (storage) Value(other.value());
             left   = other.left;
             right  = other.right;
-            color  = other.color;
             flags  = other.flags;
             
             return *this;
@@ -352,7 +352,6 @@ namespace impl {
                 new (storage) Value(std::move(other.value()));
             left   = other.left;
             right  = other.right;
-            color  = other.color;
             flags  = other.flags;
             
             return *this;
@@ -369,6 +368,17 @@ namespace impl {
         
         Value value() const {    
             return *reinterpret_cast<Value const*>(storage);
+        }
+
+        Color color() const {
+            return static_cast<Color>((flags & COLOR_BIT) == COLOR_BIT);
+        }
+
+        void set_color(Color color) {
+            if(color == Color::Black)
+                flags |= COLOR_BIT;
+            else
+                flags &= ~COLOR_BIT;
         }
 
         bool is_leaf() const {
@@ -397,6 +407,10 @@ namespace impl {
 
         void unset_right_thread() {
             flags &= ~RIGHT_THREAD;
+        }
+
+        static unsigned char to_color_bit(Color color) {
+            return static_cast<unsigned char>(color) * COLOR_BIT;
         }
 
     };
@@ -1001,7 +1015,7 @@ typename rbtree<Value, Compare, Allocator>::iterator
 rbtree<Value, Compare, Allocator>::insert(const_iterator hint, T&& value) {
     using impl::equals;
 
-    bool suitable_hint = hint.current_->color == Color::Black &&
+    bool suitable_hint = hint.current_->color() == Color::Black &&
                                  !hint.current_->has_left_child() &&
                                   compare_(value, hint.current_->value());
 
@@ -1040,7 +1054,7 @@ rbtree<Value, Compare, Allocator>::emplace_hint(const_iterator hint, Args&&... a
     using impl::equals;
 
     value_type value{std::forward<Args>(args)...};
-    bool suitable_hint = hint.current_->color == Color::Black &&
+    bool suitable_hint = hint.current_->color() == Color::Black &&
                                    !hint.current_->has_left_child() &&
                                     compare_(value, hint.current_->value());;
 
@@ -1205,7 +1219,7 @@ template <typename Value, typename Compare, typename Allocator>
 template <typename StringConverter>
 void rbtree<Value, Compare, Allocator>::assert_properties_ok(StringConverter sc) const {
     if(!empty()) {
-        if(sentinel_->right->color != Color::Black)
+        if(sentinel_->right->color() != Color::Black)
             throw color_violation_exception{"Root is red\n"};
         
         assert_properties_ok(sentinel_->right, sc);
@@ -1361,7 +1375,7 @@ void rbtree<Value, Compare, Allocator>::print(node_type* t, std::ostream& os, un
     if(t->has_right_child())
         print(t->right, os, indentation + 2);
     
-    std::string const color = t->color == Color::Red ? "R:" : "B:";
+    std::string const color = t->color() == Color::Red ? "R:" : "B:";
 
     if constexpr(impl::is_map_v<rbtree>) {
         os << color << std::setw(indentation) << ""
@@ -1421,7 +1435,7 @@ template <typename Value, typename Compare, typename Allocator>
 typename rbtree<Value, Compare, Allocator>::node_type* 
 rbtree<Value, Compare, Allocator>::clone(node_type* pred, node_type* succ, node_type* other) {
 
-    node_type* node = allocate_node(other->value(), pred, succ, other->color, other->flags);
+    node_type* node = allocate_node(other->value(), pred, succ, other->color(), other->flags);
 
     if(other->has_left_child())
         node->left = clone(pred, node, other->left);
@@ -1514,8 +1528,8 @@ rbtree<Value, Compare, Allocator>::left_rotate(node_type* root, node_type* paren
     else
         parent->right = new_root;
 
-    root->color = Color::Red;
-    new_root->color = Color::Black;
+    root->set_color(Color::Red);
+    new_root->set_color(Color::Black);
 
     return new_root;
 }
@@ -1539,8 +1553,8 @@ rbtree<Value, Compare, Allocator>::right_rotate(node_type* root, node_type* pare
     else
         parent->right = new_root;
 
-    root->color = Color::Red;
-    new_root->color = Color::Black;
+    root->set_color(Color::Red);
+    new_root->set_color(Color::Black);
 
     return new_root;
 }
@@ -1600,7 +1614,7 @@ impl::ValueRelation rbtree<Value, Compare, Allocator>::insert_position(T const& 
     };
 
     while(true) {
-        if(link(current, Direction::Left)->color == Color::Red && link(current, Direction::Right)->color == Color::Red)
+        if(link(current, Direction::Left)->color() == Color::Red && link(current, Direction::Right)->color() == Color::Red)
             recolor_insert(current, parent, grandparent, great_grandparent);
 
         great_grandparent = grandparent;
@@ -1618,21 +1632,21 @@ impl::ValueRelation rbtree<Value, Compare, Allocator>::insert_position(T const& 
         }
         else if(auto_compare(current->value(), value)) {
             if(!current->has_right_child()) {
-                relation = ValueRelation::Larger;
+                relation = ValueRelation::Greater;
                 break;
             }
             else
                 dir = Direction::Right;
         }
         else {
-            sentinel_->right->color = Color::Black;
+            sentinel_->right->set_color(Color::Black);
             return ValueRelation::Equal;
         }
 
         current = link(current, dir);
     }
 
-    sentinel_->right->color = Color::Black;
+    sentinel_->right->set_color(Color::Black);
     return relation;
 }
 
@@ -1667,14 +1681,16 @@ rbtree<Value, Compare, Allocator>::emplace_empty(Args&&... args) {
 
 template <typename Value, typename Compare, typename Allocator>
 void rbtree<Value, Compare, Allocator>::recolor_insert(node_type* current, node_type* parent, node_type* grandparent, node_type* great_grandparent) {
-    current->color = Color::Red;
+    current->set_color(Color::Red);
 
-    if(current->has_left_child() && current->has_right_child())
-        current->left->color = current->right->color = Color::Black;
+    if(current->has_left_child() && current->has_right_child()) {
+        current->left->set_color(Color::Black);
+        current->right->set_color(Color::Black);
+    }
 
     /* parent and grandparent are red, have to rotate */
-    if(parent->color == Color::Red) {
-        grandparent->color = Color::Red;
+    if(parent->color() == Color::Red) {
+        grandparent->set_color(Color::Red);
 
         bool current_is_left_child = compare_(current->value(), parent->value());
         /* Nodes are on a line, double rotation */
@@ -1684,7 +1700,7 @@ void rbtree<Value, Compare, Allocator>::recolor_insert(node_type* current, node_
             else
                 left_right_rotate(grandparent, great_grandparent);
 
-            current->color = Color::Black;
+            current->set_color(Color::Black);
         }
         /* Single rotation */
         else {
@@ -1693,7 +1709,7 @@ void rbtree<Value, Compare, Allocator>::recolor_insert(node_type* current, node_
             else
                 left_rotate(grandparent, great_grandparent);
 
-            parent->color = Color::Black;
+            parent->set_color(Color::Black);
         }
     }
 }
@@ -1703,7 +1719,7 @@ void rbtree<Value, Compare, Allocator>::recolor_remove(Direction dir, node_type*
 
     /* Node in opposite direciton is red, current and link(current, dir) are black. 
      * rotate red node into the path */
-    if(link(current, !dir)->color == Color::Red) {
+    if(link(current, !dir)->color() == Color::Red) {
         if(dir == Direction::Left)
             parent = left_rotate(current, parent);
         else
@@ -1711,9 +1727,12 @@ void rbtree<Value, Compare, Allocator>::recolor_remove(Direction dir, node_type*
     }
     else {
         /* Both of sibling's children are black, safe to recolor */
-        if(link(sibling, dir)->color == Color::Black && link(sibling, !dir)->color == Color::Black) {
-            parent->color = Color::Black;
-            sibling->color = current->color = Color::Red;
+        if(link(sibling, dir)->color() == Color::Black && 
+           link(sibling, !dir)->color() == Color::Black) 
+        {
+            parent->set_color(Color::Black);
+            sibling->set_color(Color::Red);
+            current->set_color(Color::Red);
         }
         /* Sibling has red child(ren), rotate */
         else {
@@ -1721,7 +1740,7 @@ void rbtree<Value, Compare, Allocator>::recolor_remove(Direction dir, node_type*
             Direction second_to_last = static_cast<Direction>(grandparent->right == parent);
 
             /* Triangle case */
-            if(link(sibling, last)->color == Color::Red) {
+            if(link(sibling, last)->color() == Color::Red) {
                 if(last == Direction::Right)
                     left_right_rotate(parent, grandparent);
                 else
@@ -1738,12 +1757,14 @@ void rbtree<Value, Compare, Allocator>::recolor_remove(Direction dir, node_type*
             node_type* new_parent = link(grandparent, second_to_last);
 
             /* Enforce correct coloring */
-            current->color = new_parent->color = Color::Red;
-            new_parent->left->color = new_parent->right->color = Color::Black;
+            current->set_color(Color::Red);
+            new_parent->set_color(Color::Red);
+            new_parent->left->set_color(Color::Black);
+            new_parent->right->set_color(Color::Black);
         }
     }
 
-    sentinel_->color = Color::Black;
+    sentinel_->set_color(Color::Black);
 }
 
 template <typename Value, typename Compare, typename Allocator>
@@ -1789,7 +1810,7 @@ rbtree<Value, Compare, Allocator>::enqueue_node(node_type* new_node, Direction e
     current = link(current, enq_dir);
 
     recolor_insert(current, parent, grandparent, great_grandparent);
-    sentinel_->right->color = Color::Black;
+    sentinel_->right->set_color(Color::Black);
 
     return current;
 }
@@ -1832,9 +1853,9 @@ rbtree<Value, Compare, Allocator>::dequeue_node(node_type* to_deq, node_type* to
 
         /* Make sure descendant matches to_deq */
         descendant->flags = to_deq->flags;
-        descendant->color  = to_deq->color;
-        descendant->left   = to_deq->left;
-        descendant->right  = to_deq->right;
+        descendant->left  = to_deq->left;
+        descendant->right = to_deq->right;
+        descendant->set_color(to_deq->color());
 
         auto* succ = successor(to_deq);
         if(succ != sentinel_)
@@ -1851,7 +1872,7 @@ rbtree<Value, Compare, Allocator>::dequeue_node(node_type* to_deq, node_type* to
         node_type* child = to_deq->has_left_child() ? to_deq->left : to_deq->right;
 
         /* Avoid color voilations */
-        child->color = to_deq->color;
+        child->set_color(to_deq->color());
         
         if(to_deq_parent->left == to_deq)
             to_deq_parent->left = child;
@@ -1937,7 +1958,7 @@ rbtree<Value, Compare, Allocator>::erase(value_type const& value, node_type* cur
         dir = static_cast<Direction>(compare_(current->value(), value));
         
         /* Ensure node to remove is red */
-        if(current->color == Color::Black && link(current, dir)->color == Color::Black) {
+        if(current->color() == Color::Black && link(current, dir)->color() == Color::Black) {
             recolor_remove(dir, current, parent, grandparent, sibling);
 
             /* Ensure rotations haven't separated found and found_parent */
@@ -1974,7 +1995,7 @@ rbtree<Value, Compare, Allocator>::erase(value_type const& value, node_type* cur
     }
 
     if(!empty())
-        sentinel_->right->color = Color::Black;
+        sentinel_->right->set_color(Color::Black);
 
     return deleted;
 }
@@ -2038,8 +2059,8 @@ template <typename StringConverter>
 int rbtree<Value, Compare, Allocator>::assert_properties_ok(node_type* t, StringConverter sc) const {
     node_type *lh = link(t, Direction::Left), *rh = link(t, Direction::Right);
     
-    if(t->color == Color::Red) {
-        if(lh->color == Color::Red || rh->color == Color::Red)
+    if(t->color() == Color::Red) {
+        if(lh->color() == Color::Red || rh->color() == Color::Red)
             throw color_violation_exception{"Node " + sc(t->value()) + 
                                             " is red and has red children\n"};
     }
@@ -2057,7 +2078,7 @@ int rbtree<Value, Compare, Allocator>::assert_properties_ok(node_type* t, String
                                                 sc(t->right->value())};
     }
 
-    int height_contribution = t->color == Color::Black ? 1 : 0;
+    int height_contribution = t->color() == Color::Black ? 1 : 0;
 
     if(t->has_left_child() && t->has_right_child()) {
         int left_height = assert_properties_ok(t->left, sc);
