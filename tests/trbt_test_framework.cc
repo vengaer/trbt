@@ -22,7 +22,7 @@ namespace test {
         std::mt19937 mt{std::random_device{}()};
         std::uniform_real_distribution<> dis(0.0, 1.0);
         auto int_vec = generate_int_vec(size);
-        std::vector<std::string> vals(size);
+        std::vector<std::string> vals(int_vec.size());
 
         std::transform(std::begin(int_vec), std::end(int_vec), 
                        std::begin(vals), [&dis, &mt](int const& i) {
@@ -44,7 +44,7 @@ namespace test {
         
     std::vector<std::pair<int, double>> generate_pair_vec(std::size_t size) {
         auto int_vec = generate_int_vec(size);
-        std::vector<std::pair<int, double>> vals(size);
+        std::vector<std::pair<int, double>> vals(int_vec.size());
     
         std::transform(std::begin(int_vec), std::end(int_vec),
                        std::begin(vals), [](int const& i) {

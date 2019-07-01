@@ -900,13 +900,8 @@ int main() {
                 auto test_size = test_size_dis(mt);
                 test::print_heading("ERASE (std::pair<int, double>)", test_size, i, iters);
 
-                auto vec = test::generate_pair_vec(test_size);
-        
-                test::insert(pair_tree, vec, [](auto const& pair) {
-                    std::ostringstream ss;
-                    ss << "{" << pair.first << ", " << pair.second << "}";
-                    return ss.str();
-                });
+                auto vec = test::generate_pair_vec(6);
+                pair_tree.insert(std::begin(vec), std::end(vec));
 
                 test::erase(pair_tree, vec, [](auto const& pair) {
                     std::ostringstream ss;

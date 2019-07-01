@@ -119,7 +119,7 @@ inline int constexpr TRACE_CALL_RESOLVER{0};
 
 template <typename Tree, typename T>
 auto trace_insert_if_available(Tree& tree, T&& value, int) 
-    -> std::remove_reference_t< decltype(tree.traced_insert(std::forward<T>(value)))>
+    -> std::remove_reference_t<decltype(tree.traced_insert(std::forward<T>(value)))>
                       
 {
     return tree.traced_insert(std::forward<T>(value));
@@ -146,7 +146,7 @@ auto trace_insert_if_available(Tree& tree, InputIt first, InputIt last, long) ->
 
 template <typename Tree, typename T>
 auto trace_insert_if_available(Tree& tree, typename Tree::const_iterator hint, T&& value, int) 
-    -> std::remove_reference_t< decltype(tree.traced_insert(hint, std::forward<T>(value)))>
+    -> std::remove_reference_t<decltype(tree.traced_insert(hint, std::forward<T>(value)))>
                 
 {
     return tree.traced_insert(hint, std::forward<T>(value));

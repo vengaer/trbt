@@ -176,6 +176,8 @@ namespace test {
         tree.insert(typename Tree::value_type{});
         if(tree.empty())
             throw value_retention_exception{"Tree claims empty after insertion"};
+
+        tree.clear();
     }
 
     template <typename Tree, typename T>
