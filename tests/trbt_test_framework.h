@@ -289,6 +289,8 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void insert(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         using namespace trbt::impl;
+        tree.clear();
+
         for(auto const& v : vals) {
             trace_insert_if_available(tree, v, TRACE_CALL_RESOLVER);
             tree.assert_properties_ok(sc);
@@ -305,6 +307,8 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void insert_range(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         using namespace trbt::impl;
+        tree.clear();
+
         trace_insert_if_available(tree, std::begin(vals), std::end(vals), TRACE_CALL_RESOLVER);
         tree.assert_properties_ok(sc);
         leftmost(tree);
@@ -319,6 +323,8 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void hinted_insert(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         using namespace trbt::impl;
+        tree.clear();
+
         for(auto const& v : vals) {
             auto it = tree.upper_bound(v);
             trace_insert_if_available(tree, it, v, TRACE_CALL_RESOLVER);
@@ -336,6 +342,8 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         using namespace trbt::impl;
+        tree.clear();
+
         for(auto const& v : vals) {
             trace_emplace_if_available(tree, TRACE_CALL_RESOLVER, v);
             tree.assert_properties_ok(sc);
@@ -352,6 +360,8 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         using namespace trbt::impl;
+        tree.clear();
+
         for(auto const& v : vals) {
             auto it = tree.upper_bound(v);
             trace_emplace_hint_if_available(tree, TRACE_CALL_RESOLVER, it, v);
@@ -369,6 +379,8 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void pair_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         using namespace trbt::impl;
+        tree.clear();
+
         for(auto const& v : vals) {
             trace_emplace_if_available(tree, TRACE_CALL_RESOLVER, v, double{});
             tree.assert_properties_ok(sc);
@@ -385,6 +397,8 @@ namespace test {
     template <typename Tree, typename T, typename StringConverter>
     void pair_hinted_emplace(Tree& tree, std::vector<T> const& vals, StringConverter sc) {
         using namespace trbt::impl;
+        tree.clear();
+
         for(auto const& v : vals) {
             std::pair<int, double> p{v, double{}};
             auto it = tree.upper_bound(p);

@@ -34,7 +34,6 @@ int main() {
             test::copy_ctor(int_tree, [](int i) {
                 return std::to_string(i);
             });
-            int_tree.clear();
         }
 
         /* ------------------ */
@@ -52,7 +51,6 @@ int main() {
             test::move_ctor(int_tree, [](int i) {
                 return std::to_string(i);
             });
-            int_tree.clear();
         }
 
         /* ------------------------ */
@@ -70,7 +68,6 @@ int main() {
             test::copy_assignment(int_tree, [](int i) {
                 return std::to_string(i);
             });
-            int_tree.clear();
         }
 
         /* ------------------------ */
@@ -88,7 +85,6 @@ int main() {
             test::move_assignment(int_tree, [](int i) {
                 return std::to_string(i);
             });
-            int_tree.clear();
         }
 
         /* -------------- */
@@ -99,7 +95,6 @@ int main() {
             test::print_heading("EMPTY (int)");
             ++total_iters;
             test::empty(int_tree);
-            int_tree.clear();
         }
 
         /* ------------- */
@@ -112,7 +107,6 @@ int main() {
             auto test_size = test_size_dis(mt);
             auto vec = test::generate_int_vec(test_size);
             test::size(int_tree, vec);
-            int_tree.clear();
         }
 
         /* -------------- */
@@ -123,7 +117,6 @@ int main() {
             test::print_heading("CLEAR (int)");
             ++total_iters;
             test::clear(int_tree);
-            int_tree.clear();
         }
 
         /* ----------------- */
@@ -139,7 +132,6 @@ int main() {
             test::contains(int_tree, vec, [](int i) {
                 return std::to_string(i);
             });
-            int_tree.clear();
         }
 
         /* -------------- */
@@ -155,7 +147,6 @@ int main() {
             test::count(int_tree, vec, [](int i) {
                 return std::to_string(i);
             });
-            int_tree.clear();
         }
 
 
@@ -179,8 +170,6 @@ int main() {
                 test::contains(int_tree, vec, [](int i) {
                     return std::to_string(i);
                 });
-                
-                int_tree.clear();
             }
         }
 
@@ -204,8 +193,6 @@ int main() {
                 test::contains(int_tree, vec, [](int i) {
                     return std::to_string(i);
                 });
-
-                int_tree.clear();
             }
         }
 
@@ -229,8 +216,6 @@ int main() {
                 test::contains(int_tree, vec, [](int i) {
                     return std::to_string(i);
                 });
-
-                int_tree.clear();
             }
         }
 
@@ -254,8 +239,6 @@ int main() {
                 test::contains(int_tree, vec, [](int i) {
                     return std::to_string(i);
                 });
-
-                int_tree.clear();
             }
         }
 
@@ -279,8 +262,6 @@ int main() {
                 test::contains(int_tree, vec, [](int i) {
                     return std::to_string(i);
                 });
-
-                int_tree.clear();
             }
         }
 
@@ -322,8 +303,6 @@ int main() {
             test::copy_ctor(str_tree, [](auto const& str) {
                 return str;
             });
-
-            str_tree.clear();
         }
 
         /* -------------------------- */
@@ -340,8 +319,6 @@ int main() {
             test::move_ctor(str_tree, [](auto const& str) {
                 return str;
             });
-
-            str_tree.clear();
         }
 
         /* -------------------------------- */
@@ -358,8 +335,6 @@ int main() {
             test::copy_assignment(str_tree, [](auto const& str) {
                 return str;
             });
-
-            str_tree.clear();
         }
 
         /* -------------------------- */
@@ -376,8 +351,6 @@ int main() {
             test::move_assignment(str_tree, [](auto const& str) {
                 return str;
             });
-
-            str_tree.clear();
         }
 
         /* ---------------------- */
@@ -388,7 +361,6 @@ int main() {
             test::print_heading("EMPTY (std::string)");
             ++total_iters;
             test::empty(str_tree);
-            str_tree.clear();
         }
 
         /* --------------------- */
@@ -401,7 +373,6 @@ int main() {
             auto test_size = test_size_dis(mt);
             auto vec = test::generate_string_vec(test_size);
             test::size(str_tree, vec);
-            str_tree.clear();
         }
 
         /* ---------------------- */
@@ -412,7 +383,6 @@ int main() {
             test::print_heading("CLEAR (std::string)");
             ++total_iters;
             test::clear(str_tree);
-            str_tree.clear();
         }
 
         /* ------------------------- */
@@ -428,7 +398,6 @@ int main() {
             test::contains(str_tree, vec, [](auto const& str) {
                 return str;
             });
-            str_tree.clear();
         }
 
         /* ---------------------- */
@@ -444,7 +413,6 @@ int main() {
             test::count(str_tree, vec, [](auto const& str) {
                 return str;
             });
-            str_tree.clear();
         }
 
         /* ----------------------- */
@@ -467,8 +435,6 @@ int main() {
                 test::contains(str_tree, vec, [](auto const& str) {
                     return str;
                 });
-
-                str_tree.clear();
             }
         }
 
@@ -493,8 +459,6 @@ int main() {
                 test::contains(str_tree, vec, [](auto const& str) {
                     return str;
                 });
-
-                str_tree.clear();
             }
         }
 
@@ -518,8 +482,6 @@ int main() {
                 test::contains(str_tree, vec, [](auto const& str) {
                     return str;
                 });
-        
-                str_tree.clear();
             }
         }
 
@@ -543,8 +505,6 @@ int main() {
                 test::contains(str_tree, vec, [](auto const& str) {
                     return str;
                 });
-            
-                str_tree.clear();
             }
         }
 
@@ -568,8 +528,6 @@ int main() {
                 test::contains(str_tree, vec, [](auto const& str) {
                     return str;
                 });
-            
-                str_tree.clear();
             }
         }
 
@@ -612,8 +570,6 @@ int main() {
                 ss << "{" << pair.first << ", " << pair.second << "}";
                 return ss.str();
             });
-
-            pair_tree.clear();
         }
 
         /* -------------------------------- */
@@ -632,8 +588,6 @@ int main() {
                 ss << "{" << pair.first << ", " << pair.second << "}";
                 return ss.str();
             });
-
-            pair_tree.clear();
         }
 
         /* -------------------------------------- */
@@ -652,8 +606,6 @@ int main() {
                 ss << "{" << pair.first << ", " << pair.second << "}";
                 return ss.str();
             });
-
-            pair_tree.clear();
         }
 
         /* -------------------------------------- */
@@ -672,8 +624,6 @@ int main() {
                 ss << "{" << pair.first << ", " << pair.second << "}";
                 return ss.str();
             });
-
-            pair_tree.clear();
         }
 
         /* ---------------------------- */
@@ -684,7 +634,6 @@ int main() {
             test::print_heading("EMPTY (std::pair<int, double>)");
             ++total_iters;
             test::empty(pair_tree);
-            pair_tree.clear();
         }
 
         /* --------------------------- */
@@ -697,7 +646,6 @@ int main() {
             auto test_size = test_size_dis(mt);
             auto vec = test::generate_pair_vec(test_size);
             test::size(pair_tree, vec);
-            pair_tree.clear();
         }
 
         /* --------------------------------- */
@@ -708,7 +656,6 @@ int main() {
             test::print_heading("CLEAR (std::pair<int, double>)");
             ++total_iters;
             test::clear(pair_tree);
-            pair_tree.clear();
         }
 
         /* ------------------------------------ */
@@ -726,7 +673,6 @@ int main() {
                 ss << "{" << pair.first << ", " << pair.second << "}";
                 return ss.str();
             });
-            pair_tree.clear();
         }
 
         /* --------------------------------- */
@@ -744,7 +690,6 @@ int main() {
                 ss << "{" << pair.first << ", " << pair.second << "}";
                 return ss.str();
             });
-            pair_tree.clear();
         }
 
         /* ---------------------------------- */
@@ -771,8 +716,6 @@ int main() {
                     ss << "{" << pair.first << ", " << pair.second << "}";
                     return ss.str();
                 });
-            
-                pair_tree.clear();
             }
         }
 
@@ -799,8 +742,6 @@ int main() {
                     ss << "{" << pair.first << ", " << pair.second << "}";
                     return ss.str();
                 });
-
-                pair_tree.clear();
             }
         }
 
@@ -827,8 +768,6 @@ int main() {
                     ss << "{" << pair.first << ", " << pair.second << "}";
                     return ss.str();
                 });
-
-                pair_tree.clear();
             }
         }
 
@@ -855,8 +794,6 @@ int main() {
                     ss << "{" << pair.first << ", " << pair.second << "}";
                     return ss.str();
                 });
-
-                pair_tree.clear();
             }
         }
 
@@ -883,8 +820,6 @@ int main() {
                     ss << "{" << pair.first << ", " << pair.second << "}";
                     return ss.str();
                 });
-            
-                pair_tree.clear();
             }
         }
 
@@ -942,8 +877,6 @@ int main() {
                     ss << "{" << pair.first << ", " << pair.second << "}";
                     return ss.str();
                 });
-
-                pair_tree.clear();
             }
         }
 
@@ -975,8 +908,6 @@ int main() {
                     ss << "{" << pair.first << ", " << pair.second << "}";
                     return ss.str();
                 });
-
-                pair_tree.clear();
             }
         }
 
