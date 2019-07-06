@@ -305,11 +305,11 @@ namespace impl {
         static_assert(!std::is_const_v<std::remove_reference_t<Value>>, 
                       "Value type should never be const");
     
-        static unsigned char constexpr RIGHT_THREAD = 0x1;
-        static unsigned char constexpr LEFT_THREAD  = 0x2;
-        static unsigned char constexpr SENTINEL     = 0x4;
+        static unsigned char constexpr RIGHT_BIT    = 0x1;
+        static unsigned char constexpr LEFT_BIT     = 0x2;
+        static unsigned char constexpr SENTINEL_BIT = 0x4;
         static unsigned char constexpr COLOR_BIT    = 0x8;
-        static unsigned char constexpr LEAF         = LEFT_THREAD | RIGHT_THREAD;
+        static unsigned char constexpr LEAF         = LEFT_BIT | RIGHT_BIT;
         
 
         alignas(Value) unsigned char storage[sizeof(Value)];
@@ -323,22 +323,22 @@ namespace impl {
         }
 
         node(node* ln, node* rn, Color color, unsigned char threaded)
-            : left{ln}, right{rn}, flags((threaded & LEAF) | SENTINEL | to_color_bit(color)) { }
+            : left{ln}, right{rn}, flags((threaded & LEAF) | SENTINEL_BIT | to_color_bit(color)) { }
 
         node(node const& other) 
             : left{other.left}, right{other.right}, flags{other.flags} {
-            if(!(other.flags & SENTINEL))
+            if(!(other.flags & SENTINEL_BIT))
                 new (storage) Value(other.value());
         }
     
         node(node&& other) 
             : left{other.left}, right{other.right}, flags{other.flags} {
-            if(!(other.flags & SENTINEL))
+            if(!(other.flags & SENTINEL_BIT))
                 new (storage) Value(std::move(other.value()));
         }
 
         node& operator=(node const& other) & {
-            if(!(other.flags & SENTINEL))
+            if(!(other.flags & SENTINEL_BIT))
                 new (storage) Value(other.value());
             left   = other.left;
             right  = other.right;
@@ -348,7 +348,7 @@ namespace impl {
         }
 
         node& operator=(node&& other) & {
-            if(!(other.flags & SENTINEL))
+            if(!(other.flags & SENTINEL_BIT))
                 new (storage) Value(std::move(other.value()));
             left   = other.left;
             right  = other.right;
@@ -358,58 +358,58 @@ namespace impl {
         }
 
         ~node() {
-            if(!(flags & SENTINEL))
+            if(!(flags & SENTINEL_BIT))
                 reinterpret_cast<Value*>(storage)->~Value();
         }
 
-        Value& value() {
+        Value& value() noexcept {
             return *reinterpret_cast<Value*>(storage);
         }
         
-        Value value() const {    
+        Value value() const noexcept {
             return *reinterpret_cast<Value const*>(storage);
         }
 
-        Color color() const {
+        Color color() const noexcept {
             return static_cast<Color>((flags & COLOR_BIT) == COLOR_BIT);
         }
 
-        void set_color(Color color) {
+        void set_color(Color color) noexcept {
             if(color == Color::Black)
                 flags |= COLOR_BIT;
             else
                 flags &= ~COLOR_BIT;
         }
 
-        bool is_leaf() const {
+        bool is_leaf() const noexcept {
             return (flags & LEAF) == LEAF;
         }
     
-        bool has_left_child() const {
-            return !(flags & LEFT_THREAD);
+        bool has_left_child() const noexcept {
+            return !(flags & LEFT_BIT);
         }
 
-        bool has_right_child() const {
-            return !(flags & RIGHT_THREAD);
+        bool has_right_child() const noexcept {
+            return !(flags & RIGHT_BIT);
         }
     
-        void set_left_thread() {
-            flags |= LEFT_THREAD;
+        void set_left_thread() noexcept {
+            flags |= LEFT_BIT;
         }
 
-        void set_right_thread() {
-            flags |= RIGHT_THREAD;
+        void set_right_thread() noexcept {
+            flags |= RIGHT_BIT;
         }
 
-        void unset_left_thread() {
-            flags &= ~LEFT_THREAD;
+        void unset_left_thread() noexcept {
+            flags &= ~LEFT_BIT;
         }
 
-        void unset_right_thread() {
-            flags &= ~RIGHT_THREAD;
+        void unset_right_thread() noexcept {
+            flags &= ~RIGHT_BIT;
         }
 
-        static unsigned char to_color_bit(Color color) {
+        static unsigned char to_color_bit(Color color) noexcept {
             return static_cast<unsigned char>(color) * COLOR_BIT;
         }
 
@@ -495,11 +495,11 @@ namespace impl {
                 right = std::move(temp);
             }
 
-            friend bool operator==(iterator_base const& left, iterator_base const& right) {
+            friend bool operator==(iterator_base const& left, iterator_base const& right) noexcept {
                 return left.current_ == right.current_;
             }
 
-            friend bool operator!=(iterator_base const& left, iterator_base const& right) {
+            friend bool operator!=(iterator_base const& left, iterator_base const& right) noexcept {
                 return !(left == right);
             }
     
@@ -751,17 +751,17 @@ class rbtree {
         const_reverse_iterator crend() const noexcept;
 
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept;
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator!=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator!=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept;
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept;
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator<=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator<=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept;
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept;
         template <typename Val_, typename Comp_, typename Alloc_>
-        friend bool operator>=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right);
+        friend bool operator>=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept;
         template <typename Val_, typename Comp_, typename Alloc_>
         friend void swap(rbtree<Val_, Comp_, Alloc_>& left, rbtree<Val_, Comp_, Alloc_>& right) noexcept(noexcept(left.swap(right)));
 
@@ -881,7 +881,7 @@ rbtree<Value, Compare, Allocator>::rbtree() {
 template <typename Value, typename Compare, typename Allocator>
 template <typename T, typename>
 rbtree<Value, Compare, Allocator>::rbtree(T&& value) {
-    init(node_type::LEFT_THREAD);
+    init(node_type::LEFT_BIT);
     sentinel_->right = allocate_node(std::forward<T>(value), sentinel_, sentinel_, Color::Black, node_type::LEAF);
     leftmost_ = rightmost_ = sentinel_->right;
 }
@@ -971,6 +971,7 @@ void rbtree<Value, Compare, Allocator>::clear() noexcept {
         sentinel_->right = sentinel_;
         sentinel_->set_right_thread();
         size_ = 0u;
+        leftmost_ = rightmost_ = sentinel_;
     }
 }
 
@@ -1300,7 +1301,7 @@ rbtree<Value, Compare, Allocator>::crend() const noexcept {
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
+bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept {
     using impl::equals;
     
     if(left.size() != right.size())
@@ -1317,12 +1318,12 @@ bool operator==(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, All
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator!=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
+bool operator!=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept {
     return !(left == right);
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
+bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept {
     Comp_ compare{};
     auto left_it  = std::cbegin(left);
     auto right_it = std::cbegin(right);
@@ -1338,7 +1339,7 @@ bool operator<(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Allo
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
+bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept {
     Comp_ compare{};
 
     auto left_it = std::cbegin(left);
@@ -1355,12 +1356,12 @@ bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Allo
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator<=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
+bool operator<=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept {
     return !(left > right);
 }
 
 template <typename Val_, typename Comp_, typename Alloc_>
-bool operator>=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) {
+bool operator>=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept {
     return !(left < right);
 }
 
@@ -1842,7 +1843,7 @@ rbtree<Value, Compare, Allocator>::dequeue_node(node_type* to_deq, node_type* to
             to_deq->left = descendant->left;
 
             /* Set to_deq left thread if descendant left thread is set */
-            to_deq->flags |= (descendant->flags & node_type::LEFT_THREAD);
+            to_deq->flags |= (descendant->flags & node_type::LEFT_BIT);
         }
         else if(descendant->has_left_child())
             descendant_parent->right = descendant->left;
@@ -2005,8 +2006,8 @@ typename rbtree<Value, Compare, Allocator>::node_type*
 rbtree<Value, Compare, Allocator>::lower_bound(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value())) {
-            if(current == sentinel_)
-                break;
+            if(!current->has_left_child())
+                return current;
 
             current = current->left;
         }
@@ -2014,7 +2015,7 @@ rbtree<Value, Compare, Allocator>::lower_bound(value_type const& value, node_typ
             node_type* succ = successor(current);
             if(succ == sentinel_)
                 break;
-            else if(compare_(value, succ->value()))
+            else if(!compare_(succ->value(), value))
                 return succ;
 
             current = current->right;
@@ -2030,8 +2031,8 @@ typename rbtree<Value, Compare, Allocator>::node_type*
 rbtree<Value, Compare, Allocator>::upper_bound(value_type const& value, node_type* current) const {
     while(true) {
         if(compare_(value, current->value())) {
-            if(current == sentinel_)
-                break;
+            if(!current->has_left_child())
+                return current;
 
             current = current->left;
         }
