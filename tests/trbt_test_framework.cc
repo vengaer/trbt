@@ -57,10 +57,11 @@ namespace test {
     }
 
     void print_heading(std::string const& method, std::size_t test_size, std::size_t current_iter, std::size_t iterations) {
-        std::cout << std::setfill('=') << std::setw(60) << "" << "\n"
-                  << "Running " <<  method << " test\nTest size: " << test_size 
+        std::string first_line = "Running " + method + " test";
+        std::cout << std::setfill('=') << std::setw(first_line.size()) << "" << "\n"
+                  << first_line << "\nTest size: " << test_size 
                   << "\n" << "Iteration " << ++current_iter << " of " 
-                  << iterations << "\n" << std::setw(60) << "" << "\n\n"
+                  << iterations << "\n" << std::setw(first_line.size()) << "" << "\n\n"
                   << std::setfill(' ');
     }
     
