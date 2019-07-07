@@ -295,7 +295,7 @@ namespace impl {
 
     
     template <typename T>
-    bool bit_is_set(T const& value, unsigned bitnum) noexcept {
+    inline bool bit_is_set(T const& value, unsigned bitnum) noexcept {
         static_assert(std::is_integral_v<remove_cvref_t<T>>);
         
         return value & (1 << bitnum);
@@ -421,18 +421,6 @@ namespace impl {
         inline int constexpr LINK_ERROR   = 0x2;
         inline int constexpr NODE_ERROR   = 0x4;
 
-        inline bool constexpr thread_error(int flags) noexcept {
-            return flags & THREAD_ERROR;
-        }
-        
-        inline bool constexpr link_error(int flags) noexcept {
-            return flags & LINK_ERROR;
-        }
-
-        inline bool constexpr node_error(int flags) noexcept {
-            return flags & NODE_ERROR;
-        }
-    
         struct color_violation_exception : std::runtime_error {
             using std::runtime_error::runtime_error;
         };
