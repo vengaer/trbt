@@ -926,7 +926,6 @@ rbtree<Value, Compare, Allocator>::operator=(rbtree const& other) & {
 template <typename Value, typename Compare, typename Allocator>
 rbtree<Value, Compare, Allocator>& 
 rbtree<Value, Compare, Allocator>::operator=(rbtree&& other) & {
-    init(node_type::LEAF);
     std::swap(sentinel_, other.sentinel_);
     std::swap(size_, other.size_);
     std::swap(leftmost_, other.leftmost_);
