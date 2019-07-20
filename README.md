@@ -21,7 +21,7 @@ The main con of relying on top-down balancing is that some useful functions prov
 ### Notes on Memory 
 Internally, the tree uses a sentinel node to which the actual root of the tree is connected. The sentinel is also used as the element to which (c)end and (c)rend refer. Dereferincing these iterators is, as usual, undefined behavior.  
 
-In order to use a sentinel node while not requiring that the value type be default constructible, the internal nodes use aligned raw storage (i.e. an array of chars aligned as the value type). In the sentinel node, this memory is never initialized, meaning that the result of accessing its value field (which for users is only possible through dereferencing the (c)end and (c)rend iterators) is very much undefined.  
+In order to use a sentinel node while not requiring that the value type be default constructible, the internal nodes use aligned raw storage (i.e. an array of chars aligned as the value type into which the value is written using perfect forwarding and placement new). In the sentinel node, this memory is never initialized, meaning that the result of accessing its value field (which for users is only possible through dereferencing the (c)end and (c)rend iterators) is very much undefined.  
 
 ### Iterators
 Most of the iterator functionality is implemented in the class template trbt::iterator\_base. This uses CRTP to return correct value types from its member functions.  
