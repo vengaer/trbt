@@ -607,7 +607,10 @@ template <typename Value,
           typename Compare = std::less<Value>, 
           typename Allocator = std::allocator<impl::add_const_to_key_if_pair<impl::remove_cvref_t<Value>>>>
 class rbtree {
-    static_assert(!std::is_reference_v<Value>, "Value must not be a reference");
+    static_assert(!std::is_reference_v<Value>, "Value type must not be a reference");
+    /* No need for remove_cvref since the previous assert would have triggered */
+    static_assert(!std::is_const_v<Value>, "Value type must not be const");
+    static_assert(!std::is_volatile_v<Value>, "Value type must not be volatile");
     static_assert(impl::is_comparable_v<impl::remove_cvref_t<Value>,
                                         impl::key_compare_t<impl::remove_cvref_t<Value>, Compare>>, 
                                         "Value type is not comparable");
