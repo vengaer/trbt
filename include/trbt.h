@@ -490,7 +490,13 @@ namespace impl {
             friend bool operator!=(iterator_base const& left, iterator_base const& right) noexcept {
                 return !(left == right);
             }
-    
+
+            /* GCC doesn't pick up that CRTP is being used 
+             * and complains about return type */
+            #if defined __GNUC__ && !defined __clang__
+            #pragma GCC diagnostic push
+            #pragma GCC diagnostic ignored "-Weffc++"
+            #endif
             Derived& operator++() {
                 if constexpr(requests_reverse_v<ReverseTag>) 
                     this->current_ = this->parent_->predecessor(this->current_);
@@ -519,6 +525,9 @@ namespace impl {
                 --*this;
                 return next;
             }
+            #if defined __GNUC__ && !defined __clang__
+            #pragma GCC diagnostic pop
+            #endif
 
             reference operator*() {
                 return this->current_->value();
@@ -754,11 +763,9 @@ class rbtree {
         friend bool operator>(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept;
         template <typename Val_, typename Comp_, typename Alloc_>
         friend bool operator>=(rbtree<Val_, Comp_, Alloc_> const& left, rbtree<Val_, Comp_, Alloc_> const& right) noexcept;
-        template <typename Val_, typename Comp_, typename Alloc_>
-        friend void swap(rbtree<Val_, Comp_, Alloc_>& left, rbtree<Val_, Comp_, Alloc_>& right) noexcept(noexcept(left.swap(right)));
 
     private:
-        node_type* sentinel_;
+        node_type* sentinel_{nullptr};
         node_type* leftmost_{nullptr};
         node_type* rightmost_{nullptr};
         size_type size_{};
