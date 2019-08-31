@@ -8,7 +8,11 @@
 int main() {
     using namespace trbt;
     std::mt19937 mt{std::random_device{}()};
+    #ifndef TRBT_LOCK_ITERS
     std::uniform_int_distribution<> iter_dis(0, 1000);
+    #else
+    std::uniform_int_distribution<> iter_dis(1,3);
+    #endif
     std::uniform_int_distribution<> test_size_dis(1, 1500);
     
     test::trbt_trace_type<rbtree<int>> int_tree;
@@ -1620,6 +1624,7 @@ int main() {
             pair_tree.print_trace(test::trbt_trace_stream);
 
         test::trbt_trace_stream << err.what() << "\n";
+        return 1;
     }
 
     return 0;
