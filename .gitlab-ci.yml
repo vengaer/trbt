@@ -26,12 +26,22 @@ clang:
         paths:
         - clang_trbt
 
-gcc_test:
+gcc_unit_tests:
     stage: test
     script:
     - ci/verify gcc_trbt
 
-clang_test:
+clang_unit_tests:
     stage: test
     script:
     - ci/verify clang_trbt
+
+gcc_leak_test:
+    stage: test
+    script:
+    - ci/verify gcc_trbt --leak
+
+clang_leak_test:
+    stage: test
+    script:
+    - ci/verify clang_trbt --leak
