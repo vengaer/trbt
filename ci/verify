@@ -5,6 +5,19 @@ if [ -z $1 ] ; then
     exit 1
 fi
 
+if [ "$2" == "--leak" ] ; then
+    echo Running leak test...
+    output="$(valgrind --tool=memcheck ./$1 2>&1)"
+
+    if ! echo "$output" | grep -q "All heap blocks were freed" ; then
+        printf "Memory leak detected:\n%s\n\n", "$output"
+        exit 1
+    else
+        printf "No leaks detected\n"
+    fi
+    exit 0
+fi
+
 echo Running tests...
 
 output="$(./$1)"
