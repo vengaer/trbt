@@ -1,0 +1,15 @@
+#!/bin/bash
+
+echo Running tests...
+
+output="$(./trbt)"
+retval=$?
+
+if ! echo "$output" | grep -q "Finised [0-9]+ tests successfully" ; then
+    printf "Tests failed:\n%s\n\n" "$output"
+else
+    printf "%s\n\n", "$output"
+fi
+
+printf "Process returned %s\n", "$retval"
+exit $retval
