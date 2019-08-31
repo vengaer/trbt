@@ -1,8 +1,13 @@
 #!/bin/bash
 
+if [ -z $1 ] ; then
+    echo No executable provided >&2
+    exit 1
+fi
+
 echo Running tests...
 
-output="$(./trbt)"
+output="$(./$1)"
 retval=$?
 
 if ! echo "$output" | grep -q "Finised [0-9]+ tests successfully" ; then
