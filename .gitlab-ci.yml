@@ -1,0 +1,37 @@
+image: archlinux/base:latest
+
+before_script:
+    - pacman --noconfirm -Syu
+    - pacman --noconfirm -S gcc clang make grep
+
+stages:
+    - build
+    - test
+
+gcc:
+    stage: build
+    script:
+    - export CXX=g++
+    - make locked BIN=gcc_trbt -j$(nproc)
+    artifacts:
+        paths:
+        - gcc_trbt
+
+clang:
+    stage: build
+    script:
+    - export CXX=clang++
+    - make locked BIN=clang_trbt -j$(nproc)
+    artifacts:
+        paths:
+        - clang_trbt
+
+gcc_test:
+    stage: test
+    script:
+    - ci/verify gcc_trbt
+
+clang_text:
+    stage: test
+    script:
+    - ci/verify clang_trbt
