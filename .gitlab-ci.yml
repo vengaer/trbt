@@ -31,7 +31,7 @@ gcc_test:
     script:
     - ci/verify gcc_trbt
 
-clang_text:
+clang_test:
     stage: test
     script:
     - ci/verify clang_trbt
