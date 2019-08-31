@@ -1016,9 +1016,10 @@ rbtree<Value, Compare, Allocator>::insert(const_iterator hint, T&& value) {
 
     bool suitable_hint = hint.current_->color() == Color::Black &&
                                  !hint.current_->has_left_child() &&
+                                  hint != end() &&
                                   compare_(value, hint.current_->value());
 
-    if(hint != end() && suitable_hint) {
+    if(suitable_hint) {
         if(hint.current_->left != sentinel_ &&
                 equals<key_compare>(value, hint.current_->left->value())) 
         {
@@ -1055,9 +1056,10 @@ rbtree<Value, Compare, Allocator>::emplace_hint(const_iterator hint, Args&&... a
     value_type value{std::forward<Args>(args)...};
     bool suitable_hint = hint.current_->color() == Color::Black &&
                                    !hint.current_->has_left_child() &&
+                                    hint != end() &&
                                     compare_(value, hint.current_->value());;
 
-    if(hint != end() && suitable_hint) {
+    if(suitable_hint) {
         if(hint.current_->left != sentinel_ && 
                 equals<Compare>(value, hint.current_->left->value()))
         {
