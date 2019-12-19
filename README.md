@@ -1,7 +1,7 @@
 # TRBT
 A threaded red-black tree class template.
 
-[![Build Status](https://gitlab.com/vilhelmengstrom/trbt/badges/master/build.svg)](https://gitlab.com/vilhelmengstrom/trbt/commits/master)
+[![Build Status](https://gitlab.com/vilhelmengstrom/trbt/badges/master/pipeline.svg)](https://gitlab.com/vilhelmengstrom/trbt/commits/master)
 
 The tree provides the majority of functionality available in the standard `set` and `map` containers but as a single class template. The project was written with the aim of exploring slightly more advanced aspects of meta-programming. As such, there are parts that may appear strange and convoluted.
 
